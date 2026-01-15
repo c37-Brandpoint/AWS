@@ -1,0 +1,221 @@
+{
+  "Comment": "Content Ingestion Workflow - Vectorizes content and updates knowledge graph in real-time",
+  "StartAt": "ValidateInput",
+  "States": {
+    "ValidateInput": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "And": [
+            {
+              "Variable": "$.contentId",
+              "IsPresent": true
+            },
+            {
+              "Variable": "$.content",
+              "IsPresent": true
+            }
+          ],
+          "Next": "ProcessContent"
+        }
+      ],
+      "Default": "InvalidInput"
+    },
+    "InvalidInput": {
+      "Type": "Fail",
+      "Error": "InvalidInput",
+      "Cause": "Missing required fields: contentId and content"
+    },
+    "ProcessContent": {
+      "Type": "Parallel",
+      "Branches": [
+        {
+          "StartAt": "GenerateEmbeddings",
+          "States": {
+            "GenerateEmbeddings": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${ContentIngestionFunctionArn}",
+                "Payload": {
+                  "contentId.$": "$.contentId",
+                  "content.$": "$.content",
+                  "clientId.$": "$.clientId",
+                  "operation": "vectorize"
+                }
+              },
+              "ResultSelector": {
+                "vectorized": true,
+                "contentId.$": "$.Payload.contentId",
+                "vectorId.$": "$.Payload.vectorId",
+                "dimensions.$": "$.Payload.dimensions"
+              },
+              "End": true,
+              "Retry": [
+                {
+                  "ErrorEquals": [
+                    "Lambda.ServiceException",
+                    "Lambda.AWSLambdaException"
+                  ],
+                  "IntervalSeconds": 2,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "ResultPath": "$.vectorError",
+                  "Next": "VectorizationFailed"
+                }
+              ]
+            },
+            "VectorizationFailed": {
+              "Type": "Pass",
+              "Result": {
+                "vectorized": false,
+                "error": "Vectorization failed"
+              },
+              "End": true
+            }
+          }
+        },
+        {
+          "StartAt": "ExtractEntities",
+          "States": {
+            "ExtractEntities": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${GraphUpdateFunctionArn}",
+                "Payload": {
+                  "contentId.$": "$.contentId",
+                  "content.$": "$.content",
+                  "clientId.$": "$.clientId",
+                  "operation": "extract_entities"
+                }
+              },
+              "ResultPath": "$.entities",
+              "ResultSelector": {
+                "topics.$": "$.Payload.topics",
+                "entities.$": "$.Payload.entities",
+                "publishers.$": "$.Payload.publishers"
+              },
+              "Next": "UpdateKnowledgeGraph",
+              "Retry": [
+                {
+                  "ErrorEquals": [
+                    "Lambda.ServiceException",
+                    "Lambda.AWSLambdaException"
+                  ],
+                  "IntervalSeconds": 2,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "ResultPath": "$.extractError",
+                  "Next": "GraphUpdateFailed"
+                }
+              ]
+            },
+            "UpdateKnowledgeGraph": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${GraphUpdateFunctionArn}",
+                "Payload": {
+                  "contentId.$": "$.contentId",
+                  "clientId.$": "$.clientId",
+                  "entities.$": "$.entities",
+                  "operation": "update_graph"
+                }
+              },
+              "ResultSelector": {
+                "graphed": true,
+                "contentId.$": "$.Payload.contentId",
+                "nodesCreated.$": "$.Payload.nodesCreated",
+                "edgesCreated.$": "$.Payload.edgesCreated"
+              },
+              "End": true,
+              "Retry": [
+                {
+                  "ErrorEquals": [
+                    "Lambda.ServiceException",
+                    "Lambda.AWSLambdaException"
+                  ],
+                  "IntervalSeconds": 2,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "ResultPath": "$.graphError",
+                  "Next": "GraphUpdateFailed"
+                }
+              ]
+            },
+            "GraphUpdateFailed": {
+              "Type": "Pass",
+              "Result": {
+                "graphed": false,
+                "error": "Graph update failed"
+              },
+              "End": true
+            }
+          }
+        }
+      ],
+      "ResultPath": "$.processing",
+      "Next": "CheckResults"
+    },
+    "CheckResults": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "And": [
+            {
+              "Variable": "$.processing[0].vectorized",
+              "BooleanEquals": true
+            },
+            {
+              "Variable": "$.processing[1].graphed",
+              "BooleanEquals": true
+            }
+          ],
+          "Next": "IngestionComplete"
+        },
+        {
+          "Or": [
+            {
+              "Variable": "$.processing[0].vectorized",
+              "BooleanEquals": false
+            },
+            {
+              "Variable": "$.processing[1].graphed",
+              "BooleanEquals": false
+            }
+          ],
+          "Next": "PartialIngestion"
+        }
+      ],
+      "Default": "IngestionComplete"
+    },
+    "PartialIngestion": {
+      "Type": "Pass",
+      "Result": {
+        "status": "partial",
+        "message": "Content was partially ingested. Check logs for details."
+      },
+      "ResultPath": "$.ingestionStatus",
+      "Next": "IngestionComplete"
+    },
+    "IngestionComplete": {
+      "Type": "Succeed"
+    }
+  }
+}

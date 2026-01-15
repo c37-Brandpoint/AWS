@@ -1,0 +1,332 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Brandpoint AI Platform - Master Stack (Nested Stack Orchestration)
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Environment Configuration
+        Parameters:
+          - Environment
+          - ProjectName
+      - Label:
+          default: Network Configuration
+        Parameters:
+          - VpcCidr
+          - ExistingVpcCidr
+      - Label:
+          default: Infrastructure Configuration
+        Parameters:
+          - OpenSearchInstanceType
+          - OpenSearchInstanceCount
+          - OpenSearchVolumeSize
+          - NeptuneInstanceClass
+          - SageMakerInstanceType
+      - Label:
+          default: Integration Configuration
+        Parameters:
+          - HubApiBaseUrl
+      - Label:
+          default: Deployment Configuration
+        Parameters:
+          - TemplatesBucket
+          - LambdaCodeBucket
+      - Label:
+          default: Operational Configuration
+        Parameters:
+          - AlertEmail
+          - MonthlyBudgetLimit
+          - PersonaAgentSchedule
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+    Description: Deployment environment
+
+  ProjectName:
+    Type: String
+    Default: brandpoint-ai
+    Description: Project name used for resource naming
+
+  VpcCidr:
+    Type: String
+    Default: 10.100.0.0/16
+    Description: CIDR block for new VPC (must not overlap with existing Brandpoint VPC for peering)
+
+  ExistingVpcCidr:
+    Type: String
+    Default: ''
+    Description: CIDR of existing Brandpoint VPC (for VPC peering, leave empty if not peering yet)
+
+  TemplatesBucket:
+    Type: String
+    Description: S3 bucket containing nested CloudFormation templates
+
+  LambdaCodeBucket:
+    Type: String
+    Description: S3 bucket containing Lambda deployment packages
+
+  HubApiBaseUrl:
+    Type: String
+    Default: https://hub.brandpoint.com
+    Description: Base URL for Hub API integration
+
+  OpenSearchInstanceType:
+    Type: String
+    Default: t3.small.search
+    Description: OpenSearch instance type (t3.small.search for POC)
+
+  OpenSearchInstanceCount:
+    Type: Number
+    Default: 2
+    Description: Number of OpenSearch instances
+
+  OpenSearchVolumeSize:
+    Type: Number
+    Default: 20
+    Description: OpenSearch EBS volume size in GB
+
+  NeptuneInstanceClass:
+    Type: String
+    Default: db.t3.medium
+    Description: Neptune instance class (db.t3.medium for POC)
+
+  SageMakerInstanceType:
+    Type: String
+    Default: ml.t3.medium
+    Description: SageMaker endpoint instance type
+
+  AlertEmail:
+    Type: String
+    Default: alerts@codename37.com
+    Description: Email address for alarm notifications
+
+  MonthlyBudgetLimit:
+    Type: Number
+    Default: 700
+    Description: Monthly budget limit in USD
+
+  PersonaAgentSchedule:
+    Type: String
+    Default: cron(0 6 * * ? *)
+    Description: Schedule for automated persona agent execution
+
+Resources:
+  #############################################################################
+  # Layer 0: Foundation (VPC, Security Groups, IAM)
+  #############################################################################
+  FoundationStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub https://${TemplatesBucket}.s3.amazonaws.com/cloudformation/00-foundation.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        VpcCidr: !Ref VpcCidr
+        ExistingVpcCidr: !Ref ExistingVpcCidr
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Layer
+          Value: foundation
+
+  #############################################################################
+  # Layer 1: Storage (S3, DynamoDB)
+  #############################################################################
+  StorageStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: FoundationStack
+    Properties:
+      TemplateURL: !Sub https://${TemplatesBucket}.s3.amazonaws.com/cloudformation/01-storage.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Layer
+          Value: storage
+
+  #############################################################################
+  # Layer 2: Databases (OpenSearch, Neptune)
+  #############################################################################
+  DatabasesStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: FoundationStack
+    Properties:
+      TemplateURL: !Sub https://${TemplatesBucket}.s3.amazonaws.com/cloudformation/02-databases.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        OpenSearchInstanceType: !Ref OpenSearchInstanceType
+        OpenSearchInstanceCount: !Ref OpenSearchInstanceCount
+        OpenSearchVolumeSize: !Ref OpenSearchVolumeSize
+        NeptuneInstanceClass: !Ref NeptuneInstanceClass
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Layer
+          Value: databases
+
+  #############################################################################
+  # Layer 3: Secrets (Secrets Manager)
+  #############################################################################
+  SecretsStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: FoundationStack
+    Properties:
+      TemplateURL: !Sub https://${TemplatesBucket}.s3.amazonaws.com/cloudformation/07-secrets.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Layer
+          Value: secrets
+
+  #############################################################################
+  # Layer 4: Compute (Lambda, SageMaker)
+  #############################################################################
+  ComputeStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - FoundationStack
+      - StorageStack
+      - DatabasesStack
+      - SecretsStack
+    Properties:
+      TemplateURL: !Sub https://${TemplatesBucket}.s3.amazonaws.com/cloudformation/03-compute.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        LambdaCodeBucket: !Ref LambdaCodeBucket
+        SageMakerInstanceType: !Ref SageMakerInstanceType
+        HubApiBaseUrl: !Ref HubApiBaseUrl
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Layer
+          Value: compute
+
+  #############################################################################
+  # Layer 5: Orchestration (Step Functions, EventBridge)
+  #############################################################################
+  OrchestrationStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: ComputeStack
+    Properties:
+      TemplateURL: !Sub https://${TemplatesBucket}.s3.amazonaws.com/cloudformation/04-orchestration.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        PersonaAgentSchedule: !Ref PersonaAgentSchedule
+        HubApiBaseUrl: !Ref HubApiBaseUrl
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Layer
+          Value: orchestration
+
+  #############################################################################
+  # Layer 6: API (API Gateway)
+  #############################################################################
+  APIStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: ComputeStack
+    Properties:
+      TemplateURL: !Sub https://${TemplatesBucket}.s3.amazonaws.com/cloudformation/05-api.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Layer
+          Value: api
+
+  #############################################################################
+  # Layer 7: Monitoring (CloudWatch, Budgets)
+  #############################################################################
+  MonitoringStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - ComputeStack
+      - OrchestrationStack
+      - APIStack
+    Properties:
+      TemplateURL: !Sub https://${TemplatesBucket}.s3.amazonaws.com/cloudformation/06-monitoring.yaml
+      Parameters:
+        Environment: !Ref Environment
+        ProjectName: !Ref ProjectName
+        AlertEmail: !Ref AlertEmail
+        MonthlyBudgetLimit: !Ref MonthlyBudgetLimit
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Layer
+          Value: monitoring
+
+Outputs:
+  #############################################################################
+  # Stack Outputs
+  #############################################################################
+  VPCId:
+    Description: VPC ID
+    Value: !GetAtt FoundationStack.Outputs.VPCId
+
+  VPCCidr:
+    Description: VPC CIDR block (needed for VPC peering)
+    Value: !GetAtt FoundationStack.Outputs.VPCCidr
+
+  PrivateRouteTableId:
+    Description: Private Route Table ID (needed for VPC peering routes)
+    Value: !GetAtt FoundationStack.Outputs.PrivateRouteTableId
+
+  APIEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !GetAtt APIStack.Outputs.APIEndpoint
+
+  OpenSearchEndpoint:
+    Description: OpenSearch domain endpoint
+    Value: !GetAtt DatabasesStack.Outputs.OpenSearchDomainEndpoint
+
+  NeptuneEndpoint:
+    Description: Neptune cluster endpoint
+    Value: !GetAtt DatabasesStack.Outputs.NeptuneClusterEndpoint
+
+  SageMakerEndpoint:
+    Description: SageMaker inference endpoint
+    Value: !GetAtt ComputeStack.Outputs.SageMakerEndpointName
+
+  PersonaAgentStateMachine:
+    Description: Persona Agent Step Functions state machine ARN
+    Value: !GetAtt OrchestrationStack.Outputs.PersonaAgentStateMachineArn
+
+  DashboardURL:
+    Description: CloudWatch dashboard URL
+    Value: !GetAtt MonitoringStack.Outputs.DashboardURL
+
+  DeploymentSummary:
+    Description: Deployment summary
+    Value: !Sub |
+      Brandpoint AI Platform deployed successfully!
+
+      Environment: ${Environment}
+      Region: ${AWS::Region}
+
+      Endpoints:
+      - API: ${APIStack.Outputs.APIEndpoint}
+      - OpenSearch: ${DatabasesStack.Outputs.OpenSearchDomainEndpoint}
+      - Neptune: ${DatabasesStack.Outputs.NeptuneClusterEndpoint}
+
+      Next Steps:
+      1. Update secrets in Secrets Manager with actual API keys
+      2. Deploy Lambda function code to ${LambdaCodeBucket}
+      3. Upload ML model to S3 model artifacts bucket
+      4. Configure VPC peering to existing Brandpoint VPC (for RDS access)
+      5. Update RDS security group to allow traffic from ${VpcCidr}
+      6. Configure Hub integration
+      7. Run initial persona agent test

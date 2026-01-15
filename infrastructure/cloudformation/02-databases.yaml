@@ -1,0 +1,181 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Brandpoint AI Platform - Database Layer (OpenSearch, Neptune)
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+
+  ProjectName:
+    Type: String
+    Default: brandpoint-ai
+
+  OpenSearchInstanceType:
+    Type: String
+    Default: t3.small.search
+    Description: OpenSearch instance type (t3.small.search for POC, r6g.large.search for prod)
+
+  OpenSearchInstanceCount:
+    Type: Number
+    Default: 2
+    Description: Number of OpenSearch instances
+
+  OpenSearchVolumeSize:
+    Type: Number
+    Default: 20
+    Description: EBS volume size in GB (20GB for POC, 100GB for prod)
+
+  NeptuneInstanceClass:
+    Type: String
+    Default: db.t3.medium
+    Description: Neptune instance class (db.t3.medium for POC, db.r5.large for prod)
+
+Resources:
+  #############################################################################
+  # OpenSearch Service (Vector Store)
+  #############################################################################
+  OpenSearchDomain:
+    Type: AWS::OpenSearchService::Domain
+    Properties:
+      DomainName: !Sub ${ProjectName}-${Environment}-vectors
+      EngineVersion: OpenSearch_2.11
+      ClusterConfig:
+        InstanceType: !Ref OpenSearchInstanceType
+        InstanceCount: !Ref OpenSearchInstanceCount
+        DedicatedMasterEnabled: false
+        ZoneAwarenessEnabled: true
+        ZoneAwarenessConfig:
+          AvailabilityZoneCount: 2
+      EBSOptions:
+        EBSEnabled: true
+        VolumeType: gp3
+        VolumeSize: !Ref OpenSearchVolumeSize
+        Iops: 3000
+      VPCOptions:
+        SubnetIds:
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PrivateSubnet1Id
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PrivateSubnet2Id
+        SecurityGroupIds:
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-OpenSearchSGId
+      EncryptionAtRestOptions:
+        Enabled: true
+      NodeToNodeEncryptionOptions:
+        Enabled: true
+      DomainEndpointOptions:
+        EnforceHTTPS: true
+        TLSSecurityPolicy: Policy-Min-TLS-1-2-2019-07
+      AdvancedOptions:
+        indices.knn: 'true'
+        override_main_response_version: 'true'
+      AccessPolicies:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS:
+                Fn::ImportValue: !Sub ${ProjectName}-${Environment}-LambdaRoleArn
+            Action:
+              - es:ESHttpGet
+              - es:ESHttpPost
+              - es:ESHttpPut
+              - es:ESHttpDelete
+              - es:ESHttpHead
+            Resource: !Sub arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/${ProjectName}-${Environment}-vectors/*
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Purpose
+          Value: Vector search and k-NN for Intelligence Engine
+
+  #############################################################################
+  # Neptune (Graph Database)
+  #############################################################################
+  NeptuneSubnetGroup:
+    Type: AWS::Neptune::DBSubnetGroup
+    Properties:
+      DBSubnetGroupName: !Sub ${ProjectName}-${Environment}-neptune-subnet-group
+      DBSubnetGroupDescription: Subnet group for Neptune cluster
+      SubnetIds:
+        - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PrivateSubnet1Id
+        - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PrivateSubnet2Id
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  NeptuneClusterParameterGroup:
+    Type: AWS::Neptune::DBClusterParameterGroup
+    Properties:
+      Family: neptune1.2
+      Description: Neptune cluster parameter group for Brandpoint
+      Parameters:
+        neptune_enable_audit_log: 1
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  NeptuneCluster:
+    Type: AWS::Neptune::DBCluster
+    DependsOn:
+      - NeptuneSubnetGroup
+      - NeptuneClusterParameterGroup
+    Properties:
+      DBClusterIdentifier: !Sub ${ProjectName}-${Environment}-knowledge-graph
+      EngineVersion: 1.2.1.0
+      DBSubnetGroupName: !Ref NeptuneSubnetGroup
+      DBClusterParameterGroupName: !Ref NeptuneClusterParameterGroup
+      VpcSecurityGroupIds:
+        - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-NeptuneSGId
+      IamAuthEnabled: true
+      StorageEncrypted: true
+      DeletionProtection: false
+      BackupRetentionPeriod: 7
+      PreferredBackupWindow: 03:00-04:00
+      PreferredMaintenanceWindow: sun:04:00-sun:05:00
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Purpose
+          Value: Knowledge graph for Intelligence Engine
+
+  NeptuneInstance:
+    Type: AWS::Neptune::DBInstance
+    Properties:
+      DBInstanceIdentifier: !Sub ${ProjectName}-${Environment}-neptune-instance
+      DBInstanceClass: !Ref NeptuneInstanceClass
+      DBClusterIdentifier: !Ref NeptuneCluster
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+Outputs:
+  OpenSearchDomainEndpoint:
+    Description: OpenSearch Domain Endpoint
+    Value: !GetAtt OpenSearchDomain.DomainEndpoint
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-OpenSearchEndpoint
+
+  OpenSearchDomainArn:
+    Description: OpenSearch Domain ARN
+    Value: !GetAtt OpenSearchDomain.Arn
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-OpenSearchArn
+
+  NeptuneClusterEndpoint:
+    Description: Neptune Cluster Endpoint
+    Value: !GetAtt NeptuneCluster.Endpoint
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-NeptuneEndpoint
+
+  NeptuneClusterPort:
+    Description: Neptune Cluster Port
+    Value: !GetAtt NeptuneCluster.Port
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-NeptunePort
+
+  NeptuneClusterResourceId:
+    Description: Neptune Cluster Resource ID
+    Value: !GetAtt NeptuneCluster.ClusterResourceId
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-NeptuneResourceId

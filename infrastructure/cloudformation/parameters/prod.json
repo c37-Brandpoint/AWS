@@ -1,0 +1,54 @@
+[
+  {
+    "ParameterKey": "Environment",
+    "ParameterValue": "prod"
+  },
+  {
+    "ParameterKey": "ProjectName",
+    "ParameterValue": "brandpoint-ai"
+  },
+  {
+    "ParameterKey": "TemplatesBucket",
+    "ParameterValue": "brandpoint-ai-prod-templates"
+  },
+  {
+    "ParameterKey": "LambdaCodeBucket",
+    "ParameterValue": "brandpoint-ai-prod-lambda-code"
+  },
+  {
+    "ParameterKey": "VpcCidr",
+    "ParameterValue": "10.100.0.0/16"
+  },
+  {
+    "ParameterKey": "HubApiBaseUrl",
+    "ParameterValue": "https://hub.brandpoint.com"
+  },
+  {
+    "ParameterKey": "OpenSearchInstanceType",
+    "ParameterValue": "r6g.large.search"
+  },
+  {
+    "ParameterKey": "OpenSearchInstanceCount",
+    "ParameterValue": "2"
+  },
+  {
+    "ParameterKey": "OpenSearchVolumeSize",
+    "ParameterValue": "100"
+  },
+  {
+    "ParameterKey": "NeptuneInstanceClass",
+    "ParameterValue": "db.r5.large"
+  },
+  {
+    "ParameterKey": "SageMakerInstanceType",
+    "ParameterValue": "ml.m5.large"
+  },
+  {
+    "ParameterKey": "AlertEmail",
+    "ParameterValue": "alerts@brandpoint.com"
+  },
+  {
+    "ParameterKey": "MonthlyBudgetLimit",
+    "ParameterValue": "1500"
+  }
+]

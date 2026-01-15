@@ -1,0 +1,486 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Brandpoint AI Platform - API Layer (API Gateway)
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+
+  ProjectName:
+    Type: String
+    Default: brandpoint-ai
+
+  APIStageName:
+    Type: String
+    Default: v1
+    Description: API Gateway stage name
+
+Resources:
+  #############################################################################
+  # REST API
+  #############################################################################
+  BrandpointAPI:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub ${ProjectName}-${Environment}-api
+      Description: Brandpoint AI Platform REST API
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  #############################################################################
+  # API Gateway API Key and Usage Plan
+  #############################################################################
+  APIKey:
+    Type: AWS::ApiGateway::ApiKey
+    DependsOn: APIDeployment
+    Properties:
+      Name: !Sub ${ProjectName}-${Environment}-api-key
+      Description: API key for Brandpoint Hub integration
+      Enabled: true
+      StageKeys:
+        - RestApiId: !Ref BrandpointAPI
+          StageName: !Ref APIStageName
+
+  UsagePlan:
+    Type: AWS::ApiGateway::UsagePlan
+    DependsOn: APIStage
+    Properties:
+      UsagePlanName: !Sub ${ProjectName}-${Environment}-usage-plan
+      Description: Usage plan for Brandpoint API
+      ApiStages:
+        - ApiId: !Ref BrandpointAPI
+          Stage: !Ref APIStageName
+      Throttle:
+        BurstLimit: 100
+        RateLimit: 50
+      Quota:
+        Limit: 10000
+        Period: DAY
+
+  UsagePlanKey:
+    Type: AWS::ApiGateway::UsagePlanKey
+    Properties:
+      KeyId: !Ref APIKey
+      KeyType: API_KEY
+      UsagePlanId: !Ref UsagePlan
+
+  #############################################################################
+  # Lambda Permissions for API Gateway
+  #############################################################################
+  PredictionAPIPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName:
+        Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PredictionAPIFunctionArn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BrandpointAPI}/*
+
+  PersonaAPIPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName:
+        Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PersonaAPIFunctionArn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BrandpointAPI}/*
+
+  IntelligenceAPIPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName:
+        Fn::ImportValue: !Sub ${ProjectName}-${Environment}-IntelligenceAPIFunctionArn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BrandpointAPI}/*
+
+  HealthCheckPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName:
+        Fn::ImportValue: !Sub ${ProjectName}-${Environment}-HealthCheckFunctionArn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BrandpointAPI}/*
+
+  #############################################################################
+  # /health Endpoint
+  #############################################################################
+  HealthResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref BrandpointAPI
+      ParentId: !GetAtt BrandpointAPI.RootResourceId
+      PathPart: health
+
+  HealthGetMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref BrandpointAPI
+      ResourceId: !Ref HealthResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub
+          - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaArn}/invocations
+          - LambdaArn:
+              Fn::ImportValue: !Sub ${ProjectName}-${Environment}-HealthCheckFunctionArn
+
+  #############################################################################
+  # /predict Endpoints
+  #############################################################################
+  PredictResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref BrandpointAPI
+      ParentId: !GetAtt BrandpointAPI.RootResourceId
+      PathPart: predict
+
+  PredictContentIdResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref BrandpointAPI
+      ParentId: !Ref PredictResource
+      PathPart: '{contentId}'
+
+  PredictPostMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref BrandpointAPI
+      ResourceId: !Ref PredictContentIdResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      ApiKeyRequired: true
+      RequestParameters:
+        method.request.path.contentId: true
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub
+          - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaArn}/invocations
+          - LambdaArn:
+              Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PredictionAPIFunctionArn
+
+  PredictGetMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref BrandpointAPI
+      ResourceId: !Ref PredictContentIdResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      ApiKeyRequired: true
+      RequestParameters:
+        method.request.path.contentId: true
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub
+          - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaArn}/invocations
+          - LambdaArn:
+              Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PredictionAPIFunctionArn
+
+  #############################################################################
+  # /persona Endpoints
+  #############################################################################
+  PersonaResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref BrandpointAPI
+      ParentId: !GetAtt BrandpointAPI.RootResourceId
+      PathPart: persona
+
+  PersonaIdResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref BrandpointAPI
+      ParentId: !Ref PersonaResource
+      PathPart: '{personaId}'
+
+  PersonaExecuteResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref BrandpointAPI
+      ParentId: !Ref PersonaIdResource
+      PathPart: execute
+
+  PersonaResultsResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref BrandpointAPI
+      ParentId: !Ref PersonaIdResource
+      PathPart: results
+
+  PersonaPostMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref BrandpointAPI
+      ResourceId: !Ref PersonaResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      ApiKeyRequired: true
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub
+          - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaArn}/invocations
+          - LambdaArn:
+              Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PersonaAPIFunctionArn
+
+  PersonaExecutePostMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref BrandpointAPI
+      ResourceId: !Ref PersonaExecuteResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      ApiKeyRequired: true
+      RequestParameters:
+        method.request.path.personaId: true
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub
+          - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaArn}/invocations
+          - LambdaArn:
+              Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PersonaAPIFunctionArn
+
+  PersonaResultsGetMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref BrandpointAPI
+      ResourceId: !Ref PersonaResultsResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      ApiKeyRequired: true
+      RequestParameters:
+        method.request.path.personaId: true
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub
+          - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaArn}/invocations
+          - LambdaArn:
+              Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PersonaAPIFunctionArn
+
+  #############################################################################
+  # /intel Endpoints (Intelligence Engine)
+  #############################################################################
+  IntelResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref BrandpointAPI
+      ParentId: !GetAtt BrandpointAPI.RootResourceId
+      PathPart: intel
+
+  IntelSimilarResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref BrandpointAPI
+      ParentId: !Ref IntelResource
+      PathPart: similar
+
+  IntelGraphResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref BrandpointAPI
+      ParentId: !Ref IntelResource
+      PathPart: graph
+
+  IntelGraphEntityResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref BrandpointAPI
+      ParentId: !Ref IntelGraphResource
+      PathPart: '{entityId}'
+
+  IntelInsightsResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref BrandpointAPI
+      ParentId: !Ref IntelResource
+      PathPart: insights
+
+  IntelRecommendResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref BrandpointAPI
+      ParentId: !Ref IntelResource
+      PathPart: recommend
+
+  IntelPredictResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref BrandpointAPI
+      ParentId: !Ref IntelResource
+      PathPart: predict
+
+  IntelSimilarPostMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref BrandpointAPI
+      ResourceId: !Ref IntelSimilarResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      ApiKeyRequired: true
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub
+          - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaArn}/invocations
+          - LambdaArn:
+              Fn::ImportValue: !Sub ${ProjectName}-${Environment}-IntelligenceAPIFunctionArn
+
+  IntelGraphGetMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref BrandpointAPI
+      ResourceId: !Ref IntelGraphEntityResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      ApiKeyRequired: true
+      RequestParameters:
+        method.request.path.entityId: true
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub
+          - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaArn}/invocations
+          - LambdaArn:
+              Fn::ImportValue: !Sub ${ProjectName}-${Environment}-IntelligenceAPIFunctionArn
+
+  IntelInsightsPostMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref BrandpointAPI
+      ResourceId: !Ref IntelInsightsResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      ApiKeyRequired: true
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub
+          - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaArn}/invocations
+          - LambdaArn:
+              Fn::ImportValue: !Sub ${ProjectName}-${Environment}-IntelligenceAPIFunctionArn
+
+  IntelRecommendPostMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref BrandpointAPI
+      ResourceId: !Ref IntelRecommendResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      ApiKeyRequired: true
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub
+          - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaArn}/invocations
+          - LambdaArn:
+              Fn::ImportValue: !Sub ${ProjectName}-${Environment}-IntelligenceAPIFunctionArn
+
+  IntelPredictPostMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref BrandpointAPI
+      ResourceId: !Ref IntelPredictResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      ApiKeyRequired: true
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub
+          - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaArn}/invocations
+          - LambdaArn:
+              Fn::ImportValue: !Sub ${ProjectName}-${Environment}-IntelligenceAPIFunctionArn
+
+  #############################################################################
+  # API Deployment and Stage
+  #############################################################################
+  APIDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - HealthGetMethod
+      - PredictPostMethod
+      - PredictGetMethod
+      - PersonaPostMethod
+      - PersonaExecutePostMethod
+      - PersonaResultsGetMethod
+      - IntelSimilarPostMethod
+      - IntelGraphGetMethod
+      - IntelInsightsPostMethod
+      - IntelRecommendPostMethod
+      - IntelPredictPostMethod
+    Properties:
+      RestApiId: !Ref BrandpointAPI
+      Description: !Sub ${Environment} deployment
+
+  APIStage:
+    Type: AWS::ApiGateway::Stage
+    Properties:
+      RestApiId: !Ref BrandpointAPI
+      DeploymentId: !Ref APIDeployment
+      StageName: !Ref APIStageName
+      Description: !Sub ${Environment} stage
+      MethodSettings:
+        - ResourcePath: /*
+          HttpMethod: '*'
+          LoggingLevel: INFO
+          DataTraceEnabled: true
+          MetricsEnabled: true
+          ThrottlingBurstLimit: 100
+          ThrottlingRateLimit: 50
+      TracingEnabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  #############################################################################
+  # API Gateway CloudWatch Logs Role
+  #############################################################################
+  APIGatewayCloudWatchRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${ProjectName}-${Environment}-apigateway-cloudwatch-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: apigateway.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs
+
+  APIGatewayAccount:
+    Type: AWS::ApiGateway::Account
+    Properties:
+      CloudWatchRoleArn: !GetAtt APIGatewayCloudWatchRole.Arn
+
+Outputs:
+  APIEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !Sub https://${BrandpointAPI}.execute-api.${AWS::Region}.amazonaws.com/${APIStageName}
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-APIEndpoint
+
+  APIId:
+    Description: API Gateway ID
+    Value: !Ref BrandpointAPI
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-APIId
+
+  APIKeyId:
+    Description: API Key ID
+    Value: !Ref APIKey
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-APIKeyId

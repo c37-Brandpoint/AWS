@@ -1,0 +1,543 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Brandpoint AI Platform - Orchestration Layer (Step Functions, EventBridge)
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+
+  ProjectName:
+    Type: String
+    Default: brandpoint-ai
+
+  PersonaAgentSchedule:
+    Type: String
+    Default: cron(0 6 * * ? *)
+    Description: Schedule for automated persona agent execution (default 6 AM daily)
+
+  HubApiBaseUrl:
+    Type: String
+    Default: https://hub.brandpoint.com
+    Description: Base URL for Hub API callbacks
+
+Resources:
+  #############################################################################
+  # Step Functions Log Group
+  #############################################################################
+  StepFunctionsLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/stepfunctions/${ProjectName}-${Environment}
+      RetentionInDays: 30
+
+  #############################################################################
+  # Persona Agent Workflow State Machine
+  #############################################################################
+  PersonaAgentStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Sub ${ProjectName}-${Environment}-persona-agent
+      RoleArn:
+        Fn::ImportValue: !Sub ${ProjectName}-${Environment}-StepFunctionsRoleArn
+      TracingConfiguration:
+        Enabled: true
+      LoggingConfiguration:
+        Level: ALL
+        IncludeExecutionData: true
+        Destinations:
+          - CloudWatchLogsLogGroup:
+              LogGroupArn: !GetAtt StepFunctionsLogGroup.Arn
+      DefinitionString: !Sub |
+        {
+          "Comment": "Persona Agent Workflow - Executes persona-based queries across AI engines",
+          "StartAt": "LoadPersona",
+          "States": {
+            "LoadPersona": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${ProjectName}-${Environment}-load-persona",
+                "Payload": {
+                  "personaId.$": "$.personaId"
+                }
+              },
+              "ResultPath": "$.persona",
+              "ResultSelector": {
+                "data.$": "$.Payload"
+              },
+              "Next": "GenerateQueries",
+              "Retry": [
+                {
+                  "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException"],
+                  "IntervalSeconds": 2,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "Next": "HandleError",
+                  "ResultPath": "$.error"
+                }
+              ]
+            },
+            "GenerateQueries": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${ProjectName}-${Environment}-generate-queries",
+                "Payload": {
+                  "persona.$": "$.persona.data",
+                  "queryCount": 5
+                }
+              },
+              "ResultPath": "$.queries",
+              "ResultSelector": {
+                "data.$": "$.Payload"
+              },
+              "Next": "ExecuteQueriesMap",
+              "Retry": [
+                {
+                  "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException"],
+                  "IntervalSeconds": 2,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "Next": "HandleError",
+                  "ResultPath": "$.error"
+                }
+              ]
+            },
+            "ExecuteQueriesMap": {
+              "Type": "Map",
+              "ItemsPath": "$.queries.data.queries",
+              "MaxConcurrency": 4,
+              "Parameters": {
+                "query.$": "$$.Map.Item.Value",
+                "persona.$": "$.persona.data",
+                "executionId.$": "$$.Execution.Id"
+              },
+              "Iterator": {
+                "StartAt": "ExecuteAcrossEngines",
+                "States": {
+                  "ExecuteAcrossEngines": {
+                    "Type": "Parallel",
+                    "Branches": [
+                      {
+                        "StartAt": "ExecuteChatGPT",
+                        "States": {
+                          "ExecuteChatGPT": {
+                            "Type": "Task",
+                            "Resource": "arn:aws:states:::lambda:invoke",
+                            "Parameters": {
+                              "FunctionName": "${ProjectName}-${Environment}-execute-query-chatgpt",
+                              "Payload": {
+                                "query.$": "$.query",
+                                "persona.$": "$.persona"
+                              }
+                            },
+                            "ResultSelector": {
+                              "engine": "chatgpt",
+                              "response.$": "$.Payload"
+                            },
+                            "End": true,
+                            "Retry": [
+                              {
+                                "ErrorEquals": ["Lambda.ServiceException"],
+                                "IntervalSeconds": 5,
+                                "MaxAttempts": 2,
+                                "BackoffRate": 2
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "StartAt": "ExecutePerplexity",
+                        "States": {
+                          "ExecutePerplexity": {
+                            "Type": "Task",
+                            "Resource": "arn:aws:states:::lambda:invoke",
+                            "Parameters": {
+                              "FunctionName": "${ProjectName}-${Environment}-execute-query-perplexity",
+                              "Payload": {
+                                "query.$": "$.query",
+                                "persona.$": "$.persona"
+                              }
+                            },
+                            "ResultSelector": {
+                              "engine": "perplexity",
+                              "response.$": "$.Payload"
+                            },
+                            "End": true,
+                            "Retry": [
+                              {
+                                "ErrorEquals": ["Lambda.ServiceException"],
+                                "IntervalSeconds": 5,
+                                "MaxAttempts": 2,
+                                "BackoffRate": 2
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "StartAt": "ExecuteGemini",
+                        "States": {
+                          "ExecuteGemini": {
+                            "Type": "Task",
+                            "Resource": "arn:aws:states:::lambda:invoke",
+                            "Parameters": {
+                              "FunctionName": "${ProjectName}-${Environment}-execute-query-gemini",
+                              "Payload": {
+                                "query.$": "$.query",
+                                "persona.$": "$.persona"
+                              }
+                            },
+                            "ResultSelector": {
+                              "engine": "gemini",
+                              "response.$": "$.Payload"
+                            },
+                            "End": true,
+                            "Retry": [
+                              {
+                                "ErrorEquals": ["Lambda.ServiceException"],
+                                "IntervalSeconds": 5,
+                                "MaxAttempts": 2,
+                                "BackoffRate": 2
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "StartAt": "ExecuteClaude",
+                        "States": {
+                          "ExecuteClaude": {
+                            "Type": "Task",
+                            "Resource": "arn:aws:states:::lambda:invoke",
+                            "Parameters": {
+                              "FunctionName": "${ProjectName}-${Environment}-execute-query-claude",
+                              "Payload": {
+                                "query.$": "$.query",
+                                "persona.$": "$.persona"
+                              }
+                            },
+                            "ResultSelector": {
+                              "engine": "claude",
+                              "response.$": "$.Payload"
+                            },
+                            "End": true,
+                            "Retry": [
+                              {
+                                "ErrorEquals": ["Lambda.ServiceException"],
+                                "IntervalSeconds": 5,
+                                "MaxAttempts": 2,
+                                "BackoffRate": 2
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    ],
+                    "ResultPath": "$.engineResults",
+                    "End": true
+                  }
+                }
+              },
+              "ResultPath": "$.allResults",
+              "Next": "AnalyzeVisibility"
+            },
+            "AnalyzeVisibility": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${ProjectName}-${Environment}-analyze-visibility",
+                "Payload": {
+                  "results.$": "$.allResults",
+                  "persona.$": "$.persona.data"
+                }
+              },
+              "ResultPath": "$.analysis",
+              "ResultSelector": {
+                "data.$": "$.Payload"
+              },
+              "Next": "StoreResults",
+              "Retry": [
+                {
+                  "ErrorEquals": ["Lambda.ServiceException"],
+                  "IntervalSeconds": 2,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "Next": "HandleError",
+                  "ResultPath": "$.error"
+                }
+              ]
+            },
+            "StoreResults": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${ProjectName}-${Environment}-store-results",
+                "Payload": {
+                  "executionId.$": "$$.Execution.Id",
+                  "persona.$": "$.persona.data",
+                  "results.$": "$.allResults",
+                  "analysis.$": "$.analysis.data"
+                }
+              },
+              "ResultPath": "$.stored",
+              "Next": "Success",
+              "Retry": [
+                {
+                  "ErrorEquals": ["Lambda.ServiceException"],
+                  "IntervalSeconds": 2,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "Next": "HandleError",
+                  "ResultPath": "$.error"
+                }
+              ]
+            },
+            "Success": {
+              "Type": "Succeed"
+            },
+            "HandleError": {
+              "Type": "Fail",
+              "Error": "PersonaAgentError",
+              "Cause": "An error occurred during persona agent execution"
+            }
+          }
+        }
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: persona-agent
+
+  #############################################################################
+  # Content Ingestion Workflow State Machine
+  #############################################################################
+  ContentIngestionStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Sub ${ProjectName}-${Environment}-content-ingestion
+      RoleArn:
+        Fn::ImportValue: !Sub ${ProjectName}-${Environment}-StepFunctionsRoleArn
+      TracingConfiguration:
+        Enabled: true
+      LoggingConfiguration:
+        Level: ALL
+        IncludeExecutionData: true
+        Destinations:
+          - CloudWatchLogsLogGroup:
+              LogGroupArn: !GetAtt StepFunctionsLogGroup.Arn
+      DefinitionString: !Sub |
+        {
+          "Comment": "Content Ingestion Workflow - Vectorize and graph new content",
+          "StartAt": "ProcessContent",
+          "States": {
+            "ProcessContent": {
+              "Type": "Parallel",
+              "Branches": [
+                {
+                  "StartAt": "GenerateEmbeddings",
+                  "States": {
+                    "GenerateEmbeddings": {
+                      "Type": "Task",
+                      "Resource": "arn:aws:states:::lambda:invoke",
+                      "Parameters": {
+                        "FunctionName": "${ProjectName}-${Environment}-content-ingestion",
+                        "Payload": {
+                          "contentId.$": "$.contentId",
+                          "content.$": "$.content"
+                        }
+                      },
+                      "ResultSelector": {
+                        "vectorized.$": "$.Payload"
+                      },
+                      "End": true,
+                      "Retry": [
+                        {
+                          "ErrorEquals": ["Lambda.ServiceException"],
+                          "IntervalSeconds": 2,
+                          "MaxAttempts": 3,
+                          "BackoffRate": 2
+                        }
+                      ]
+                    }
+                  }
+                },
+                {
+                  "StartAt": "UpdateKnowledgeGraph",
+                  "States": {
+                    "UpdateKnowledgeGraph": {
+                      "Type": "Task",
+                      "Resource": "arn:aws:states:::lambda:invoke",
+                      "Parameters": {
+                        "FunctionName": "${ProjectName}-${Environment}-graph-update",
+                        "Payload": {
+                          "contentId.$": "$.contentId",
+                          "content.$": "$.content",
+                          "clientId.$": "$.clientId"
+                        }
+                      },
+                      "ResultSelector": {
+                        "graphed.$": "$.Payload"
+                      },
+                      "End": true,
+                      "Retry": [
+                        {
+                          "ErrorEquals": ["Lambda.ServiceException"],
+                          "IntervalSeconds": 2,
+                          "MaxAttempts": 3,
+                          "BackoffRate": 2
+                        }
+                      ]
+                    }
+                  }
+                }
+              ],
+              "ResultPath": "$.processing",
+              "Next": "IngestionComplete",
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "Next": "IngestionFailed",
+                  "ResultPath": "$.error"
+                }
+              ]
+            },
+            "IngestionComplete": {
+              "Type": "Succeed"
+            },
+            "IngestionFailed": {
+              "Type": "Fail",
+              "Error": "ContentIngestionError",
+              "Cause": "An error occurred during content ingestion"
+            }
+          }
+        }
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: intelligence-engine
+
+  #############################################################################
+  # EventBridge Rules
+  #############################################################################
+  PersonaAgentScheduleRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub ${ProjectName}-${Environment}-persona-agent-schedule
+      Description: Daily scheduled execution of persona agents
+      ScheduleExpression: !Ref PersonaAgentSchedule
+      State: ENABLED
+      Targets:
+        - Id: PersonaAgentTarget
+          Arn: !GetAtt PersonaAgentStateMachine.Arn
+          RoleArn:
+            Fn::ImportValue: !Sub ${ProjectName}-${Environment}-EventBridgeRoleArn
+          Input: |
+            {
+              "personaId": "scheduled-execution",
+              "executeAll": true
+            }
+
+  ContentPublishedRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub ${ProjectName}-${Environment}-content-published
+      Description: Trigger content ingestion when new content is published
+      EventPattern:
+        source:
+          - brandpoint.hub
+        detail-type:
+          - Content Published
+      State: ENABLED
+      Targets:
+        - Id: ContentIngestionTarget
+          Arn: !GetAtt ContentIngestionStateMachine.Arn
+          RoleArn:
+            Fn::ImportValue: !Sub ${ProjectName}-${Environment}-EventBridgeRoleArn
+          InputTransformer:
+            InputPathsMap:
+              contentId: $.detail.contentId
+              clientId: $.detail.clientId
+              content: $.detail.content
+            InputTemplate: |
+              {
+                "contentId": <contentId>,
+                "clientId": <clientId>,
+                "content": <content>
+              }
+
+  #############################################################################
+  # EventBridge API Destination (for Hub callbacks)
+  #############################################################################
+  HubAPIConnection:
+    Type: AWS::Events::Connection
+    Properties:
+      Name: !Sub ${ProjectName}-${Environment}-hub-connection
+      AuthorizationType: API_KEY
+      AuthParameters:
+        ApiKeyAuthParameters:
+          ApiKeyName: X-Api-Key
+          ApiKeyValue: '{{resolve:secretsmanager:brandpoint-ai-dev-hub-service-account-key:SecretString:apiKey}}'
+
+  HubAPIDestination:
+    Type: AWS::Events::ApiDestination
+    Properties:
+      Name: !Sub ${ProjectName}-${Environment}-hub-api
+      ConnectionArn: !GetAtt HubAPIConnection.Arn
+      HttpMethod: POST
+      InvocationEndpoint: !Sub ${HubApiBaseUrl}/api/predictions/persona/results
+      InvocationRateLimitPerSecond: 10
+
+Outputs:
+  PersonaAgentStateMachineArn:
+    Description: Persona Agent State Machine ARN
+    Value: !GetAtt PersonaAgentStateMachine.Arn
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-PersonaAgentStateMachineArn
+
+  ContentIngestionStateMachineArn:
+    Description: Content Ingestion State Machine ARN
+    Value: !GetAtt ContentIngestionStateMachine.Arn
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-ContentIngestionStateMachineArn
+
+  PersonaAgentScheduleRuleArn:
+    Description: Persona Agent Schedule Rule ARN
+    Value: !GetAtt PersonaAgentScheduleRule.Arn
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-PersonaAgentScheduleRuleArn
+
+  StepFunctionsLogGroupArn:
+    Description: Step Functions Log Group ARN
+    Value: !GetAtt StepFunctionsLogGroup.Arn
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-StepFunctionsLogGroupArn
+
+  HubApiBaseUrl:
+    Description: Hub API Base URL
+    Value: !Ref HubApiBaseUrl
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-HubApiBaseUrl

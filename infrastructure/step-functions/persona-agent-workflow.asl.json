@@ -1,0 +1,428 @@
+{
+  "Comment": "Persona Agent Workflow - Executes persona-based queries across AI engines to measure brand visibility",
+  "StartAt": "LoadPersona",
+  "States": {
+    "LoadPersona": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${LoadPersonaFunctionArn}",
+        "Payload": {
+          "personaId.$": "$.personaId"
+        }
+      },
+      "ResultPath": "$.persona",
+      "ResultSelector": {
+        "data.$": "$.Payload"
+      },
+      "Next": "ValidatePersona",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "HandleError",
+          "ResultPath": "$.error"
+        }
+      ]
+    },
+    "ValidatePersona": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.persona.data.personaId",
+          "IsPresent": true,
+          "Next": "GenerateQueries"
+        }
+      ],
+      "Default": "PersonaNotFound"
+    },
+    "PersonaNotFound": {
+      "Type": "Fail",
+      "Error": "PersonaNotFound",
+      "Cause": "The specified persona was not found in DynamoDB"
+    },
+    "GenerateQueries": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${GenerateQueriesFunctionArn}",
+        "Payload": {
+          "persona.$": "$.persona.data",
+          "queryCount": 5,
+          "context": {
+            "executionId.$": "$$.Execution.Id",
+            "startTime.$": "$$.Execution.StartTime"
+          }
+        }
+      },
+      "ResultPath": "$.queries",
+      "ResultSelector": {
+        "data.$": "$.Payload"
+      },
+      "Next": "ExecuteQueriesMap",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "HandleError",
+          "ResultPath": "$.error"
+        }
+      ]
+    },
+    "ExecuteQueriesMap": {
+      "Type": "Map",
+      "ItemsPath": "$.queries.data.queries",
+      "MaxConcurrency": 4,
+      "Parameters": {
+        "query.$": "$$.Map.Item.Value",
+        "persona.$": "$.persona.data",
+        "executionId.$": "$$.Execution.Id",
+        "queryIndex.$": "$$.Map.Item.Index"
+      },
+      "Iterator": {
+        "StartAt": "ExecuteAcrossEngines",
+        "States": {
+          "ExecuteAcrossEngines": {
+            "Type": "Parallel",
+            "Branches": [
+              {
+                "StartAt": "ExecuteChatGPT",
+                "States": {
+                  "ExecuteChatGPT": {
+                    "Type": "Task",
+                    "Resource": "arn:aws:states:::lambda:invoke",
+                    "Parameters": {
+                      "FunctionName": "${ExecuteQueryChatGPTFunctionArn}",
+                      "Payload": {
+                        "query.$": "$.query",
+                        "persona.$": "$.persona",
+                        "engine": "chatgpt"
+                      }
+                    },
+                    "ResultSelector": {
+                      "engine": "chatgpt",
+                      "response.$": "$.Payload.response",
+                      "latencyMs.$": "$.Payload.latencyMs",
+                      "success.$": "$.Payload.success"
+                    },
+                    "End": true,
+                    "Retry": [
+                      {
+                        "ErrorEquals": ["Lambda.ServiceException"],
+                        "IntervalSeconds": 5,
+                        "MaxAttempts": 2,
+                        "BackoffRate": 2
+                      }
+                    ],
+                    "Catch": [
+                      {
+                        "ErrorEquals": ["States.ALL"],
+                        "ResultPath": "$.engineError",
+                        "Next": "ChatGPTFallback"
+                      }
+                    ]
+                  },
+                  "ChatGPTFallback": {
+                    "Type": "Pass",
+                    "Result": {
+                      "engine": "chatgpt",
+                      "response": null,
+                      "error": true,
+                      "success": false
+                    },
+                    "End": true
+                  }
+                }
+              },
+              {
+                "StartAt": "ExecutePerplexity",
+                "States": {
+                  "ExecutePerplexity": {
+                    "Type": "Task",
+                    "Resource": "arn:aws:states:::lambda:invoke",
+                    "Parameters": {
+                      "FunctionName": "${ExecuteQueryPerplexityFunctionArn}",
+                      "Payload": {
+                        "query.$": "$.query",
+                        "persona.$": "$.persona",
+                        "engine": "perplexity"
+                      }
+                    },
+                    "ResultSelector": {
+                      "engine": "perplexity",
+                      "response.$": "$.Payload.response",
+                      "latencyMs.$": "$.Payload.latencyMs",
+                      "success.$": "$.Payload.success"
+                    },
+                    "End": true,
+                    "Retry": [
+                      {
+                        "ErrorEquals": ["Lambda.ServiceException"],
+                        "IntervalSeconds": 5,
+                        "MaxAttempts": 2,
+                        "BackoffRate": 2
+                      }
+                    ],
+                    "Catch": [
+                      {
+                        "ErrorEquals": ["States.ALL"],
+                        "ResultPath": "$.engineError",
+                        "Next": "PerplexityFallback"
+                      }
+                    ]
+                  },
+                  "PerplexityFallback": {
+                    "Type": "Pass",
+                    "Result": {
+                      "engine": "perplexity",
+                      "response": null,
+                      "error": true,
+                      "success": false
+                    },
+                    "End": true
+                  }
+                }
+              },
+              {
+                "StartAt": "ExecuteGemini",
+                "States": {
+                  "ExecuteGemini": {
+                    "Type": "Task",
+                    "Resource": "arn:aws:states:::lambda:invoke",
+                    "Parameters": {
+                      "FunctionName": "${ExecuteQueryGeminiFunctionArn}",
+                      "Payload": {
+                        "query.$": "$.query",
+                        "persona.$": "$.persona",
+                        "engine": "gemini"
+                      }
+                    },
+                    "ResultSelector": {
+                      "engine": "gemini",
+                      "response.$": "$.Payload.response",
+                      "latencyMs.$": "$.Payload.latencyMs",
+                      "success.$": "$.Payload.success"
+                    },
+                    "End": true,
+                    "Retry": [
+                      {
+                        "ErrorEquals": ["Lambda.ServiceException"],
+                        "IntervalSeconds": 5,
+                        "MaxAttempts": 2,
+                        "BackoffRate": 2
+                      }
+                    ],
+                    "Catch": [
+                      {
+                        "ErrorEquals": ["States.ALL"],
+                        "ResultPath": "$.engineError",
+                        "Next": "GeminiFallback"
+                      }
+                    ]
+                  },
+                  "GeminiFallback": {
+                    "Type": "Pass",
+                    "Result": {
+                      "engine": "gemini",
+                      "response": null,
+                      "error": true,
+                      "success": false
+                    },
+                    "End": true
+                  }
+                }
+              },
+              {
+                "StartAt": "ExecuteClaude",
+                "States": {
+                  "ExecuteClaude": {
+                    "Type": "Task",
+                    "Resource": "arn:aws:states:::lambda:invoke",
+                    "Parameters": {
+                      "FunctionName": "${ExecuteQueryClaudeFunctionArn}",
+                      "Payload": {
+                        "query.$": "$.query",
+                        "persona.$": "$.persona",
+                        "engine": "claude"
+                      }
+                    },
+                    "ResultSelector": {
+                      "engine": "claude",
+                      "response.$": "$.Payload.response",
+                      "latencyMs.$": "$.Payload.latencyMs",
+                      "success.$": "$.Payload.success"
+                    },
+                    "End": true,
+                    "Retry": [
+                      {
+                        "ErrorEquals": ["Lambda.ServiceException"],
+                        "IntervalSeconds": 5,
+                        "MaxAttempts": 2,
+                        "BackoffRate": 2
+                      }
+                    ],
+                    "Catch": [
+                      {
+                        "ErrorEquals": ["States.ALL"],
+                        "ResultPath": "$.engineError",
+                        "Next": "ClaudeFallback"
+                      }
+                    ]
+                  },
+                  "ClaudeFallback": {
+                    "Type": "Pass",
+                    "Result": {
+                      "engine": "claude",
+                      "response": null,
+                      "error": true,
+                      "success": false
+                    },
+                    "End": true
+                  }
+                }
+              }
+            ],
+            "ResultPath": "$.engineResults",
+            "End": true
+          }
+        }
+      },
+      "ResultPath": "$.allResults",
+      "Next": "AnalyzeVisibility"
+    },
+    "AnalyzeVisibility": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${AnalyzeVisibilityFunctionArn}",
+        "Payload": {
+          "results.$": "$.allResults",
+          "persona.$": "$.persona.data",
+          "brandContext": {
+            "brandId.$": "$.persona.data.brandId",
+            "clientId.$": "$.persona.data.clientId"
+          }
+        }
+      },
+      "ResultPath": "$.analysis",
+      "ResultSelector": {
+        "data.$": "$.Payload"
+      },
+      "Next": "StoreResults",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "HandleError",
+          "ResultPath": "$.error"
+        }
+      ]
+    },
+    "StoreResults": {
+      "Type": "Parallel",
+      "Branches": [
+        {
+          "StartAt": "StoreToDynamoDB",
+          "States": {
+            "StoreToDynamoDB": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${StoreResultsFunctionArn}",
+                "Payload": {
+                  "executionId.$": "$$.Execution.Id",
+                  "persona.$": "$.persona.data",
+                  "results.$": "$.allResults",
+                  "analysis.$": "$.analysis.data",
+                  "destination": "dynamodb"
+                }
+              },
+              "End": true,
+              "Retry": [
+                {
+                  "ErrorEquals": ["Lambda.ServiceException"],
+                  "IntervalSeconds": 2,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2
+                }
+              ]
+            }
+          }
+        },
+        {
+          "StartAt": "SyncToHub",
+          "States": {
+            "SyncToHub": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${StoreResultsFunctionArn}",
+                "Payload": {
+                  "executionId.$": "$$.Execution.Id",
+                  "persona.$": "$.persona.data",
+                  "results.$": "$.allResults",
+                  "analysis.$": "$.analysis.data",
+                  "destination": "hub"
+                }
+              },
+              "End": true,
+              "Retry": [
+                {
+                  "ErrorEquals": ["Lambda.ServiceException"],
+                  "IntervalSeconds": 2,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "ResultPath": "$.stored",
+      "Next": "Success",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "HandleError",
+          "ResultPath": "$.error"
+        }
+      ]
+    },
+    "Success": {
+      "Type": "Succeed"
+    },
+    "HandleError": {
+      "Type": "Fail",
+      "Error": "PersonaAgentError",
+      "Cause": "An error occurred during persona agent execution. Check CloudWatch logs for details."
+    }
+  }
+}

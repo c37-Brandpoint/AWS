@@ -1,0 +1,783 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Brandpoint AI Platform - Compute Layer (Lambda Functions, SageMaker)
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+
+  ProjectName:
+    Type: String
+    Default: brandpoint-ai
+
+  LambdaCodeBucket:
+    Type: String
+    Description: S3 bucket containing Lambda deployment packages
+
+  SageMakerInstanceType:
+    Type: String
+    Default: ml.t3.medium
+    Description: SageMaker endpoint instance type
+
+  HubApiBaseUrl:
+    Type: String
+    Default: https://hub.brandpoint.com
+    Description: Base URL for Hub API integration
+
+Resources:
+  #############################################################################
+  # Lambda Layer (Common Dependencies)
+  #############################################################################
+  CommonDependenciesLayer:
+    Type: AWS::Lambda::LayerVersion
+    Properties:
+      LayerName: !Sub ${ProjectName}-${Environment}-common-deps
+      Description: Common Python dependencies for Lambda functions
+      Content:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: layers/common-deps.zip
+      CompatibleRuntimes:
+        - python3.11
+      CompatibleArchitectures:
+        - x86_64
+
+  #############################################################################
+  # Persona Agent Lambda Functions
+  #############################################################################
+  LoadPersonaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${ProjectName}-${Environment}-load-persona
+      Description: Load persona definition from DynamoDB
+      Runtime: python3.11
+      Handler: index.handler
+      MemorySize: 256
+      Timeout: 30
+      Role:
+        Fn::ImportValue: !Sub ${ProjectName}-${Environment}-LambdaRoleArn
+      VpcConfig:
+        SecurityGroupIds:
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-LambdaSGId
+        SubnetIds:
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PrivateSubnet1Id
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PrivateSubnet2Id
+      Environment:
+        Variables:
+          PERSONAS_TABLE:
+            Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PersonasTable
+          ENVIRONMENT: !Ref Environment
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: functions/load-persona.zip
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: persona-agent
+
+  GenerateQueriesFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${ProjectName}-${Environment}-generate-queries
+      Description: Generate persona-based queries using Bedrock Claude
+      Runtime: python3.11
+      Handler: index.handler
+      MemorySize: 512
+      Timeout: 60
+      Role:
+        Fn::ImportValue: !Sub ${ProjectName}-${Environment}-LambdaRoleArn
+      VpcConfig:
+        SecurityGroupIds:
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-LambdaSGId
+        SubnetIds:
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PrivateSubnet1Id
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PrivateSubnet2Id
+      Environment:
+        Variables:
+          BEDROCK_MODEL_ID: anthropic.claude-3-5-sonnet-20241022-v2:0
+          ENVIRONMENT: !Ref Environment
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: functions/generate-queries.zip
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: persona-agent
+
+  ExecuteQueryChatGPTFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${ProjectName}-${Environment}-execute-query-chatgpt
+      Description: Execute query against ChatGPT API
+      Runtime: python3.11
+      Handler: index.handler
+      MemorySize: 256
+      Timeout: 120
+      Role:
+        Fn::ImportValue: !Sub ${ProjectName}-${Environment}-LambdaRoleArn
+      VpcConfig:
+        SecurityGroupIds:
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-LambdaSGId
+        SubnetIds:
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PrivateSubnet1Id
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PrivateSubnet2Id
+      Environment:
+        Variables:
+          SECRET_NAME: !Sub ${ProjectName}-${Environment}-openai-api-key
+          ENGINE: chatgpt
+          ENVIRONMENT: !Ref Environment
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: functions/execute-query.zip
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: persona-agent
+
+  ExecuteQueryPerplexityFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${ProjectName}-${Environment}-execute-query-perplexity
+      Description: Execute query against Perplexity API
+      Runtime: python3.11
+      Handler: index.handler
+      MemorySize: 256
+      Timeout: 120
+      Role:
+        Fn::ImportValue: !Sub ${ProjectName}-${Environment}-LambdaRoleArn
+      VpcConfig:
+        SecurityGroupIds:
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-LambdaSGId
+        SubnetIds:
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PrivateSubnet1Id
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PrivateSubnet2Id
+      Environment:
+        Variables:
+          SECRET_NAME: !Sub ${ProjectName}-${Environment}-perplexity-api-key
+          ENGINE: perplexity
+          ENVIRONMENT: !Ref Environment
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: functions/execute-query.zip
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: persona-agent
+
+  ExecuteQueryGeminiFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${ProjectName}-${Environment}-execute-query-gemini
+      Description: Execute query against Google Gemini API
+      Runtime: python3.11
+      Handler: index.handler
+      MemorySize: 256
+      Timeout: 120
+      Role:
+        Fn::ImportValue: !Sub ${ProjectName}-${Environment}-LambdaRoleArn
+      VpcConfig:
+        SecurityGroupIds:
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-LambdaSGId
+        SubnetIds:
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PrivateSubnet1Id
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PrivateSubnet2Id
+      Environment:
+        Variables:
+          SECRET_NAME: !Sub ${ProjectName}-${Environment}-gemini-api-key
+          ENGINE: gemini
+          ENVIRONMENT: !Ref Environment
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: functions/execute-query.zip
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: persona-agent
+
+  ExecuteQueryClaudeFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${ProjectName}-${Environment}-execute-query-claude
+      Description: Execute query against Claude API via Bedrock
+      Runtime: python3.11
+      Handler: index.handler
+      MemorySize: 256
+      Timeout: 120
+      Role:
+        Fn::ImportValue: !Sub ${ProjectName}-${Environment}-LambdaRoleArn
+      VpcConfig:
+        SecurityGroupIds:
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-LambdaSGId
+        SubnetIds:
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PrivateSubnet1Id
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PrivateSubnet2Id
+      Environment:
+        Variables:
+          BEDROCK_MODEL_ID: anthropic.claude-3-5-sonnet-20241022-v2:0
+          ENGINE: claude
+          ENVIRONMENT: !Ref Environment
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: functions/execute-query.zip
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: persona-agent
+
+  AnalyzeVisibilityFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${ProjectName}-${Environment}-analyze-visibility
+      Description: Analyze AI responses for brand visibility using Bedrock
+      Runtime: python3.11
+      Handler: index.handler
+      MemorySize: 512
+      Timeout: 60
+      Role:
+        Fn::ImportValue: !Sub ${ProjectName}-${Environment}-LambdaRoleArn
+      VpcConfig:
+        SecurityGroupIds:
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-LambdaSGId
+        SubnetIds:
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PrivateSubnet1Id
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PrivateSubnet2Id
+      Environment:
+        Variables:
+          BEDROCK_MODEL_ID: anthropic.claude-3-5-sonnet-20241022-v2:0
+          ENVIRONMENT: !Ref Environment
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: functions/analyze-visibility.zip
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: persona-agent
+
+  StoreResultsFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${ProjectName}-${Environment}-store-results
+      Description: Store persona agent results to DynamoDB and Hub API
+      Runtime: python3.11
+      Handler: index.handler
+      MemorySize: 256
+      Timeout: 30
+      Role:
+        Fn::ImportValue: !Sub ${ProjectName}-${Environment}-LambdaRoleArn
+      VpcConfig:
+        SecurityGroupIds:
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-LambdaSGId
+        SubnetIds:
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PrivateSubnet1Id
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PrivateSubnet2Id
+      Environment:
+        Variables:
+          RESULTS_TABLE:
+            Fn::ImportValue: !Sub ${ProjectName}-${Environment}-QueryResultsTable
+          HUB_API_SECRET: !Sub ${ProjectName}-${Environment}-hub-service-account-key
+          HUB_API_URL: !Ref HubApiBaseUrl
+          ENVIRONMENT: !Ref Environment
+          AWS_REGION_NAME: !Ref AWS::Region
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: functions/store-results.zip
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: persona-agent
+
+  #############################################################################
+  # AI Visibility Predictor Lambda Functions
+  #############################################################################
+  FeatureExtractionFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${ProjectName}-${Environment}-feature-extraction
+      Description: Extract features from content for ML prediction
+      Runtime: python3.11
+      Handler: index.handler
+      MemorySize: 1024
+      Timeout: 60
+      Role:
+        Fn::ImportValue: !Sub ${ProjectName}-${Environment}-LambdaRoleArn
+      VpcConfig:
+        SecurityGroupIds:
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-LambdaSGId
+        SubnetIds:
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PrivateSubnet1Id
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PrivateSubnet2Id
+      Environment:
+        Variables:
+          HUB_API_SECRET: !Sub ${ProjectName}-${Environment}-hub-service-account-key
+          ARA3_DB_SECRET: !Sub ${ProjectName}-${Environment}-ara3-database-readonly
+          SAGEMAKER_ENDPOINT: !Sub ${ProjectName}-${Environment}-visibility-predictor
+          ENVIRONMENT: !Ref Environment
+          AWS_REGION_NAME: !Ref AWS::Region
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: functions/feature-extraction.zip
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: visibility-predictor
+
+  #############################################################################
+  # Intelligence Engine Lambda Functions
+  #############################################################################
+  ContentIngestionFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${ProjectName}-${Environment}-content-ingestion
+      Description: Ingest new content and generate vector embeddings
+      Runtime: python3.11
+      Handler: index.handler
+      MemorySize: 512
+      Timeout: 60
+      Role:
+        Fn::ImportValue: !Sub ${ProjectName}-${Environment}-LambdaRoleArn
+      VpcConfig:
+        SecurityGroupIds:
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-LambdaSGId
+        SubnetIds:
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PrivateSubnet1Id
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PrivateSubnet2Id
+      Environment:
+        Variables:
+          BEDROCK_EMBEDDING_MODEL: amazon.titan-embed-text-v2:0
+          OPENSEARCH_ENDPOINT:
+            Fn::ImportValue: !Sub ${ProjectName}-${Environment}-OpenSearchEndpoint
+          OPENSEARCH_INDEX: !Sub ${ProjectName}-${Environment}-content-vectors
+          ARA3_DB_SECRET: !Sub ${ProjectName}-${Environment}-ara3-database-readonly
+          ENVIRONMENT: !Ref Environment
+          AWS_REGION_NAME: !Ref AWS::Region
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: functions/content-ingestion.zip
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: intelligence-engine
+
+  GraphUpdateFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${ProjectName}-${Environment}-graph-update
+      Description: Update Neptune knowledge graph with new content relationships
+      Runtime: python3.11
+      Handler: index.handler
+      MemorySize: 512
+      Timeout: 60
+      Role:
+        Fn::ImportValue: !Sub ${ProjectName}-${Environment}-LambdaRoleArn
+      VpcConfig:
+        SecurityGroupIds:
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-LambdaSGId
+        SubnetIds:
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PrivateSubnet1Id
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PrivateSubnet2Id
+      Environment:
+        Variables:
+          NEPTUNE_ENDPOINT:
+            Fn::ImportValue: !Sub ${ProjectName}-${Environment}-NeptuneEndpoint
+          NEPTUNE_PORT:
+            Fn::ImportValue: !Sub ${ProjectName}-${Environment}-NeptunePort
+          BEDROCK_MODEL_ID: anthropic.claude-3-5-sonnet-20241022-v2:0
+          ENVIRONMENT: !Ref Environment
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: functions/graph-update.zip
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: intelligence-engine
+
+  SimilaritySearchFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${ProjectName}-${Environment}-similarity-search
+      Description: Perform k-NN similarity search on OpenSearch
+      Runtime: python3.11
+      Handler: index.handler
+      MemorySize: 256
+      Timeout: 30
+      Role:
+        Fn::ImportValue: !Sub ${ProjectName}-${Environment}-LambdaRoleArn
+      VpcConfig:
+        SecurityGroupIds:
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-LambdaSGId
+        SubnetIds:
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PrivateSubnet1Id
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PrivateSubnet2Id
+      Environment:
+        Variables:
+          OPENSEARCH_ENDPOINT:
+            Fn::ImportValue: !Sub ${ProjectName}-${Environment}-OpenSearchEndpoint
+          OPENSEARCH_INDEX: !Sub ${ProjectName}-${Environment}-content-vectors
+          BEDROCK_EMBEDDING_MODEL: amazon.titan-embed-text-v2:0
+          ENVIRONMENT: !Ref Environment
+          AWS_REGION_NAME: !Ref AWS::Region
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: functions/similarity-search.zip
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: intelligence-engine
+
+  GraphQueryFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${ProjectName}-${Environment}-graph-query
+      Description: Query Neptune knowledge graph using Gremlin
+      Runtime: python3.11
+      Handler: index.handler
+      MemorySize: 256
+      Timeout: 30
+      Role:
+        Fn::ImportValue: !Sub ${ProjectName}-${Environment}-LambdaRoleArn
+      VpcConfig:
+        SecurityGroupIds:
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-LambdaSGId
+        SubnetIds:
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PrivateSubnet1Id
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PrivateSubnet2Id
+      Environment:
+        Variables:
+          NEPTUNE_ENDPOINT:
+            Fn::ImportValue: !Sub ${ProjectName}-${Environment}-NeptuneEndpoint
+          NEPTUNE_PORT:
+            Fn::ImportValue: !Sub ${ProjectName}-${Environment}-NeptunePort
+          ENVIRONMENT: !Ref Environment
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: functions/graph-query.zip
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: intelligence-engine
+
+  InsightsGeneratorFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${ProjectName}-${Environment}-insights-generator
+      Description: Generate natural language insights using Bedrock Claude
+      Runtime: python3.11
+      Handler: index.handler
+      MemorySize: 512
+      Timeout: 60
+      Role:
+        Fn::ImportValue: !Sub ${ProjectName}-${Environment}-LambdaRoleArn
+      VpcConfig:
+        SecurityGroupIds:
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-LambdaSGId
+        SubnetIds:
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PrivateSubnet1Id
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PrivateSubnet2Id
+      Environment:
+        Variables:
+          BEDROCK_MODEL_ID: anthropic.claude-3-5-sonnet-20241022-v2:0
+          OPENSEARCH_ENDPOINT:
+            Fn::ImportValue: !Sub ${ProjectName}-${Environment}-OpenSearchEndpoint
+          NEPTUNE_ENDPOINT:
+            Fn::ImportValue: !Sub ${ProjectName}-${Environment}-NeptuneEndpoint
+          ENVIRONMENT: !Ref Environment
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: functions/insights-generator.zip
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: intelligence-engine
+
+  #############################################################################
+  # API Handler Lambda Functions
+  #############################################################################
+  PredictionAPIFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${ProjectName}-${Environment}-prediction-api
+      Description: API handler for prediction endpoints
+      Runtime: python3.11
+      Handler: index.handler
+      MemorySize: 512
+      Timeout: 30
+      Role:
+        Fn::ImportValue: !Sub ${ProjectName}-${Environment}-LambdaRoleArn
+      VpcConfig:
+        SecurityGroupIds:
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-LambdaSGId
+        SubnetIds:
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PrivateSubnet1Id
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PrivateSubnet2Id
+      Environment:
+        Variables:
+          PREDICTIONS_TABLE:
+            Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PredictionsTable
+          SAGEMAKER_ENDPOINT: !Sub ${ProjectName}-${Environment}-visibility-predictor
+          HUB_API_SECRET: !Sub ${ProjectName}-${Environment}-hub-service-account-key
+          ARA3_DB_SECRET: !Sub ${ProjectName}-${Environment}-ara3-database-readonly
+          ENVIRONMENT: !Ref Environment
+          AWS_REGION_NAME: !Ref AWS::Region
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: functions/prediction-api.zip
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: api
+
+  PersonaAPIFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${ProjectName}-${Environment}-persona-api
+      Description: API handler for persona endpoints
+      Runtime: python3.11
+      Handler: index.handler
+      MemorySize: 256
+      Timeout: 30
+      Role:
+        Fn::ImportValue: !Sub ${ProjectName}-${Environment}-LambdaRoleArn
+      VpcConfig:
+        SecurityGroupIds:
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-LambdaSGId
+        SubnetIds:
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PrivateSubnet1Id
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PrivateSubnet2Id
+      Environment:
+        Variables:
+          PERSONAS_TABLE:
+            Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PersonasTable
+          QUERY_RESULTS_TABLE:
+            Fn::ImportValue: !Sub ${ProjectName}-${Environment}-QueryResultsTable
+          STEP_FUNCTION_ARN:
+            Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PersonaAgentStateMachineArn
+          ENVIRONMENT: !Ref Environment
+          AWS_REGION_NAME: !Ref AWS::Region
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: functions/persona-api.zip
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: api
+
+  IntelligenceAPIFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${ProjectName}-${Environment}-intelligence-api
+      Description: API handler for intelligence engine endpoints
+      Runtime: python3.11
+      Handler: index.handler
+      MemorySize: 512
+      Timeout: 30
+      Role:
+        Fn::ImportValue: !Sub ${ProjectName}-${Environment}-LambdaRoleArn
+      VpcConfig:
+        SecurityGroupIds:
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-LambdaSGId
+        SubnetIds:
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PrivateSubnet1Id
+          - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PrivateSubnet2Id
+      Environment:
+        Variables:
+          OPENSEARCH_ENDPOINT:
+            Fn::ImportValue: !Sub ${ProjectName}-${Environment}-OpenSearchEndpoint
+          NEPTUNE_ENDPOINT:
+            Fn::ImportValue: !Sub ${ProjectName}-${Environment}-NeptuneEndpoint
+          BEDROCK_MODEL_ID: anthropic.claude-3-5-sonnet-20241022-v2:0
+          ENVIRONMENT: !Ref Environment
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: functions/intelligence-api.zip
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: api
+
+  HealthCheckFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${ProjectName}-${Environment}-health-check
+      Description: Health check endpoint for API
+      Runtime: python3.11
+      Handler: index.handler
+      MemorySize: 128
+      Timeout: 10
+      Role:
+        Fn::ImportValue: !Sub ${ProjectName}-${Environment}-LambdaRoleArn
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+      Code:
+        ZipFile: |
+          import json
+          def handler(event, context):
+              return {
+                  'statusCode': 200,
+                  'body': json.dumps({'status': 'healthy', 'environment': '${Environment}'})
+              }
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: api
+
+  #############################################################################
+  # SageMaker Endpoint
+  #############################################################################
+  SageMakerModel:
+    Type: AWS::SageMaker::Model
+    Properties:
+      ModelName: !Sub ${ProjectName}-${Environment}-visibility-model
+      ExecutionRoleArn:
+        Fn::ImportValue: !Sub ${ProjectName}-${Environment}-SageMakerRoleArn
+      PrimaryContainer:
+        Image: !Sub 763104351884.dkr.ecr.${AWS::Region}.amazonaws.com/pytorch-inference:2.0.1-cpu-py310
+        ModelDataUrl: !Sub s3://${ProjectName}-${Environment}-model-artifacts-${AWS::AccountId}/models/visibility-predictor/model.tar.gz
+        Environment:
+          SAGEMAKER_PROGRAM: inference.py
+          SAGEMAKER_SUBMIT_DIRECTORY: /opt/ml/model/code
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  SageMakerEndpointConfig:
+    Type: AWS::SageMaker::EndpointConfig
+    Properties:
+      EndpointConfigName: !Sub ${ProjectName}-${Environment}-predictor-config
+      ProductionVariants:
+        - VariantName: AllTraffic
+          ModelName: !GetAtt SageMakerModel.ModelName
+          InitialInstanceCount: 1
+          InstanceType: !Ref SageMakerInstanceType
+          InitialVariantWeight: 1.0
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  SageMakerEndpoint:
+    Type: AWS::SageMaker::Endpoint
+    Properties:
+      EndpointName: !Sub ${ProjectName}-${Environment}-visibility-predictor
+      EndpointConfigName: !GetAtt SageMakerEndpointConfig.EndpointConfigName
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+Outputs:
+  LoadPersonaFunctionArn:
+    Value: !GetAtt LoadPersonaFunction.Arn
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-LoadPersonaFunctionArn
+
+  GenerateQueriesFunctionArn:
+    Value: !GetAtt GenerateQueriesFunction.Arn
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-GenerateQueriesFunctionArn
+
+  ExecuteQueryChatGPTFunctionArn:
+    Value: !GetAtt ExecuteQueryChatGPTFunction.Arn
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-ExecuteQueryChatGPTFunctionArn
+
+  ExecuteQueryPerplexityFunctionArn:
+    Value: !GetAtt ExecuteQueryPerplexityFunction.Arn
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-ExecuteQueryPerplexityFunctionArn
+
+  ExecuteQueryGeminiFunctionArn:
+    Value: !GetAtt ExecuteQueryGeminiFunction.Arn
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-ExecuteQueryGeminiFunctionArn
+
+  ExecuteQueryClaudeFunctionArn:
+    Value: !GetAtt ExecuteQueryClaudeFunction.Arn
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-ExecuteQueryClaudeFunctionArn
+
+  AnalyzeVisibilityFunctionArn:
+    Value: !GetAtt AnalyzeVisibilityFunction.Arn
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-AnalyzeVisibilityFunctionArn
+
+  StoreResultsFunctionArn:
+    Value: !GetAtt StoreResultsFunction.Arn
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-StoreResultsFunctionArn
+
+  ContentIngestionFunctionArn:
+    Value: !GetAtt ContentIngestionFunction.Arn
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-ContentIngestionFunctionArn
+
+  GraphUpdateFunctionArn:
+    Value: !GetAtt GraphUpdateFunction.Arn
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-GraphUpdateFunctionArn
+
+  SimilaritySearchFunctionArn:
+    Value: !GetAtt SimilaritySearchFunction.Arn
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-SimilaritySearchFunctionArn
+
+  GraphQueryFunctionArn:
+    Value: !GetAtt GraphQueryFunction.Arn
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-GraphQueryFunctionArn
+
+  InsightsGeneratorFunctionArn:
+    Value: !GetAtt InsightsGeneratorFunction.Arn
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-InsightsGeneratorFunctionArn
+
+  FeatureExtractionFunctionArn:
+    Value: !GetAtt FeatureExtractionFunction.Arn
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-FeatureExtractionFunctionArn
+
+  PredictionAPIFunctionArn:
+    Value: !GetAtt PredictionAPIFunction.Arn
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-PredictionAPIFunctionArn
+
+  PersonaAPIFunctionArn:
+    Value: !GetAtt PersonaAPIFunction.Arn
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-PersonaAPIFunctionArn
+
+  IntelligenceAPIFunctionArn:
+    Value: !GetAtt IntelligenceAPIFunction.Arn
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-IntelligenceAPIFunctionArn
+
+  HealthCheckFunctionArn:
+    Value: !GetAtt HealthCheckFunction.Arn
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-HealthCheckFunctionArn
+
+  SageMakerEndpointName:
+    Value: !GetAtt SageMakerEndpoint.EndpointName
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-SageMakerEndpoint
+
+  CommonDependenciesLayerArn:
+    Value: !Ref CommonDependenciesLayer
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-CommonDependenciesLayerArn

@@ -1,0 +1,247 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Brandpoint AI Platform - Storage Layer (S3, DynamoDB)
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+
+  ProjectName:
+    Type: String
+    Default: brandpoint-ai
+
+Resources:
+  #############################################################################
+  # S3 Buckets
+  #############################################################################
+  ModelArtifactsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${ProjectName}-${Environment}-model-artifacts-${AWS::AccountId}
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Purpose
+          Value: ML model artifacts and training data
+
+  ResultsArchiveBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${ProjectName}-${Environment}-results-archive-${AWS::AccountId}
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: MoveToIA
+            Status: Enabled
+            Transitions:
+              - TransitionInDays: 30
+                StorageClass: STANDARD_IA
+              - TransitionInDays: 90
+                StorageClass: GLACIER
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Purpose
+          Value: Prediction and query results archive
+
+  DataLakeBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${ProjectName}-${Environment}-data-lake-${AWS::AccountId}
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: MoveToGlacier
+            Status: Enabled
+            Transitions:
+              - TransitionInDays: 90
+                StorageClass: GLACIER
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Purpose
+          Value: Raw data and ETL outputs for Intelligence Engine
+
+  #############################################################################
+  # DynamoDB Tables
+  #############################################################################
+  PersonasTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${ProjectName}-${Environment}-personas
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: personaId
+          AttributeType: S
+        - AttributeName: clientId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: personaId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: clientId-index
+          KeySchema:
+            - AttributeName: clientId
+              KeyType: HASH
+            - AttributeName: personaId
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Purpose
+          Value: Persona definitions for agent system
+
+  QueryResultsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${ProjectName}-${Environment}-query-results
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: executionId
+          AttributeType: S
+        - AttributeName: resultId
+          AttributeType: S
+        - AttributeName: personaId
+          AttributeType: S
+        - AttributeName: executedAt
+          AttributeType: S
+      KeySchema:
+        - AttributeName: executionId
+          KeyType: HASH
+        - AttributeName: resultId
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: personaId-executedAt-index
+          KeySchema:
+            - AttributeName: personaId
+              KeyType: HASH
+            - AttributeName: executedAt
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      TimeToLiveSpecification:
+        AttributeName: expiresAt
+        Enabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Purpose
+          Value: Persona query execution results
+
+  PredictionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${ProjectName}-${Environment}-predictions
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: contentId
+          AttributeType: S
+        - AttributeName: predictionId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: contentId
+          KeyType: HASH
+        - AttributeName: predictionId
+          KeyType: RANGE
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Purpose
+          Value: AI visibility predictions cache
+
+Outputs:
+  ModelArtifactsBucketName:
+    Description: Model Artifacts S3 Bucket Name
+    Value: !Ref ModelArtifactsBucket
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-ModelArtifactsBucket
+
+  ModelArtifactsBucketArn:
+    Description: Model Artifacts S3 Bucket ARN
+    Value: !GetAtt ModelArtifactsBucket.Arn
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-ModelArtifactsBucketArn
+
+  ResultsArchiveBucketName:
+    Description: Results Archive S3 Bucket Name
+    Value: !Ref ResultsArchiveBucket
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-ResultsArchiveBucket
+
+  DataLakeBucketName:
+    Description: Data Lake S3 Bucket Name
+    Value: !Ref DataLakeBucket
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-DataLakeBucket
+
+  PersonasTableName:
+    Description: Personas DynamoDB Table Name
+    Value: !Ref PersonasTable
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-PersonasTable
+
+  PersonasTableArn:
+    Description: Personas DynamoDB Table ARN
+    Value: !GetAtt PersonasTable.Arn
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-PersonasTableArn
+
+  QueryResultsTableName:
+    Description: Query Results DynamoDB Table Name
+    Value: !Ref QueryResultsTable
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-QueryResultsTable
+
+  QueryResultsTableArn:
+    Description: Query Results DynamoDB Table ARN
+    Value: !GetAtt QueryResultsTable.Arn
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-QueryResultsTableArn
+
+  PredictionsTableName:
+    Description: Predictions DynamoDB Table Name
+    Value: !Ref PredictionsTable
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-PredictionsTable

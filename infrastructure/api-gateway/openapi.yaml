@@ -1,0 +1,738 @@
+openapi: 3.0.3
+info:
+  title: Brandpoint AI Platform API
+  description: |
+    REST API for the Brandpoint AI Platform providing:
+    - AI Visibility Prediction for content
+    - Persona Agent execution and results
+    - Intelligence Engine queries (similarity, graph, insights)
+  version: 1.0.0
+  contact:
+    name: Codename 37
+    email: support@codename37.com
+
+servers:
+  - url: https://{apiId}.execute-api.{region}.amazonaws.com/v1
+    description: API Gateway endpoint
+    variables:
+      apiId:
+        default: xxxxxxxxxx
+        description: API Gateway ID
+      region:
+        default: us-east-1
+        description: AWS Region
+
+security:
+  - ApiKeyAuth: []
+
+tags:
+  - name: Health
+    description: Health check endpoints
+  - name: Prediction
+    description: AI Visibility Prediction endpoints
+  - name: Persona
+    description: Persona Agent endpoints
+  - name: Intelligence
+    description: Intelligence Engine endpoints
+
+paths:
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Health check
+      description: Returns the health status of the API
+      operationId: getHealth
+      security: []
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /predict/{contentId}:
+    post:
+      tags:
+        - Prediction
+      summary: Run visibility prediction
+      description: Runs the AI visibility prediction model on the specified content
+      operationId: runPrediction
+      parameters:
+        - name: contentId
+          in: path
+          required: true
+          description: Content ID from Hub
+          schema:
+            type: string
+      requestBody:
+        description: Optional prediction parameters
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PredictionRequest'
+      responses:
+        '200':
+          description: Prediction completed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PredictionResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Content not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    get:
+      tags:
+        - Prediction
+      summary: Get prediction result
+      description: Retrieves an existing prediction for the specified content
+      operationId: getPrediction
+      parameters:
+        - name: contentId
+          in: path
+          required: true
+          description: Content ID from Hub
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Prediction retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PredictionResponse'
+        '404':
+          description: Prediction not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /persona:
+    post:
+      tags:
+        - Persona
+      summary: Create a new persona
+      description: Creates a new persona definition in DynamoDB
+      operationId: createPersona
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PersonaDefinition'
+      responses:
+        '201':
+          description: Persona created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersonaResponse'
+        '400':
+          description: Invalid persona definition
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /persona/{personaId}/execute:
+    post:
+      tags:
+        - Persona
+      summary: Execute persona agent
+      description: Triggers the persona agent workflow to execute queries
+      operationId: executePersona
+      parameters:
+        - name: personaId
+          in: path
+          required: true
+          description: Persona ID
+          schema:
+            type: string
+      requestBody:
+        description: Execution parameters
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PersonaExecuteRequest'
+      responses:
+        '202':
+          description: Execution started
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersonaExecuteResponse'
+        '404':
+          description: Persona not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /persona/{personaId}/results:
+    get:
+      tags:
+        - Persona
+      summary: Get persona results
+      description: Retrieves query execution results for a persona
+      operationId: getPersonaResults
+      parameters:
+        - name: personaId
+          in: path
+          required: true
+          description: Persona ID
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: Maximum number of results to return
+          schema:
+            type: integer
+            default: 50
+            maximum: 100
+        - name: startDate
+          in: query
+          description: Filter results from this date
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Results retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersonaResultsResponse'
+        '404':
+          description: Persona not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /intel/similar:
+    post:
+      tags:
+        - Intelligence
+      summary: Find similar content
+      description: Uses vector similarity (k-NN) to find content similar to the input
+      operationId: findSimilar
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SimilarityRequest'
+      responses:
+        '200':
+          description: Similar content found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SimilarityResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /intel/graph/{entityId}:
+    get:
+      tags:
+        - Intelligence
+      summary: Query knowledge graph
+      description: Retrieves related entities from the Neptune knowledge graph
+      operationId: queryGraph
+      parameters:
+        - name: entityId
+          in: path
+          required: true
+          description: Entity ID to query
+          schema:
+            type: string
+        - name: depth
+          in: query
+          description: Traversal depth
+          schema:
+            type: integer
+            default: 2
+            maximum: 5
+        - name: entityTypes
+          in: query
+          description: Filter by entity types
+          schema:
+            type: array
+            items:
+              type: string
+              enum: [Client, Content, Topic, Publisher, Query, Persona]
+      responses:
+        '200':
+          description: Graph data retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GraphResponse'
+        '404':
+          description: Entity not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /intel/insights:
+    post:
+      tags:
+        - Intelligence
+      summary: Generate insights
+      description: Generates natural language insights using LLM analysis
+      operationId: generateInsights
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InsightsRequest'
+      responses:
+        '200':
+          description: Insights generated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InsightsResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /intel/recommend:
+    post:
+      tags:
+        - Intelligence
+      summary: Get content recommendations
+      description: Generates content strategy recommendations based on analysis
+      operationId: getRecommendations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecommendRequest'
+      responses:
+        '200':
+          description: Recommendations generated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecommendResponse'
+
+  /intel/predict:
+    post:
+      tags:
+        - Intelligence
+      summary: Predict content performance
+      description: Predicts performance metrics for content using ML models
+      operationId: predictPerformance
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PerformancePredictRequest'
+      responses:
+        '200':
+          description: Performance prediction generated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PerformancePredictResponse'
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-Api-Key
+
+  schemas:
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: healthy
+        environment:
+          type: string
+          example: dev
+        timestamp:
+          type: string
+          format: date-time
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+        requestId:
+          type: string
+
+    PredictionRequest:
+      type: object
+      properties:
+        forceRefresh:
+          type: boolean
+          default: false
+          description: Force new prediction even if cached
+
+    PredictionResponse:
+      type: object
+      properties:
+        predictionId:
+          type: string
+        contentId:
+          type: string
+        predictionScore:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+        confidenceScore:
+          type: number
+          format: float
+        topFactors:
+          type: array
+          items:
+            $ref: '#/components/schemas/PredictionFactor'
+        recommendations:
+          type: array
+          items:
+            type: string
+        modelVersion:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    PredictionFactor:
+      type: object
+      properties:
+        name:
+          type: string
+        impact:
+          type: number
+          format: float
+        value:
+          type: string
+
+    PersonaDefinition:
+      type: object
+      required:
+        - personaId
+        - clientId
+        - brandId
+        - demographics
+      properties:
+        personaId:
+          type: string
+        clientId:
+          type: string
+        brandId:
+          type: string
+        demographics:
+          type: object
+          properties:
+            ageRange:
+              type: array
+              items:
+                type: integer
+            gender:
+              type: string
+            education:
+              type: string
+            location:
+              type: string
+        psychographics:
+          type: object
+          properties:
+            interests:
+              type: array
+              items:
+                type: string
+            concerns:
+              type: array
+              items:
+                type: string
+        queryPatterns:
+          type: object
+          properties:
+            speakingStyle:
+              type: string
+            typicalQuestions:
+              type: array
+              items:
+                type: string
+
+    PersonaResponse:
+      type: object
+      properties:
+        personaId:
+          type: string
+        message:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    PersonaExecuteRequest:
+      type: object
+      properties:
+        queryCount:
+          type: integer
+          default: 5
+          minimum: 1
+          maximum: 10
+        engines:
+          type: array
+          items:
+            type: string
+            enum: [chatgpt, perplexity, gemini, claude]
+          default: [chatgpt, perplexity, gemini, claude]
+
+    PersonaExecuteResponse:
+      type: object
+      properties:
+        executionId:
+          type: string
+        personaId:
+          type: string
+        status:
+          type: string
+          enum: [started, running, completed, failed]
+        startedAt:
+          type: string
+          format: date-time
+
+    PersonaResultsResponse:
+      type: object
+      properties:
+        personaId:
+          type: string
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/QueryResult'
+        aggregateVisibility:
+          type: number
+          format: float
+        totalQueries:
+          type: integer
+        engineBreakdown:
+          type: object
+          additionalProperties:
+            type: number
+
+    QueryResult:
+      type: object
+      properties:
+        resultId:
+          type: string
+        queryText:
+          type: string
+        engine:
+          type: string
+        brandMentioned:
+          type: boolean
+        visibilityScore:
+          type: number
+          format: float
+        executedAt:
+          type: string
+          format: date-time
+
+    SimilarityRequest:
+      type: object
+      properties:
+        contentId:
+          type: string
+          description: Find content similar to this ID
+        text:
+          type: string
+          description: Find content similar to this text
+        limit:
+          type: integer
+          default: 10
+          maximum: 50
+        filters:
+          type: object
+          properties:
+            clientId:
+              type: string
+            minScore:
+              type: number
+
+    SimilarityResponse:
+      type: object
+      properties:
+        query:
+          type: string
+        results:
+          type: array
+          items:
+            type: object
+            properties:
+              contentId:
+                type: string
+              headline:
+                type: string
+              similarity:
+                type: number
+                format: float
+              metadata:
+                type: object
+
+    GraphResponse:
+      type: object
+      properties:
+        entityId:
+          type: string
+        nodes:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              type:
+                type: string
+              properties:
+                type: object
+        edges:
+          type: array
+          items:
+            type: object
+            properties:
+              source:
+                type: string
+              target:
+                type: string
+              relationship:
+                type: string
+              properties:
+                type: object
+
+    InsightsRequest:
+      type: object
+      required:
+        - clientId
+      properties:
+        clientId:
+          type: string
+        timeRange:
+          type: string
+          default: 90d
+        focusAreas:
+          type: array
+          items:
+            type: string
+            enum: [visibility, engagement, topics, publishers]
+
+    InsightsResponse:
+      type: object
+      properties:
+        clientId:
+          type: string
+        insights:
+          type: array
+          items:
+            type: object
+            properties:
+              category:
+                type: string
+              insight:
+                type: string
+              confidence:
+                type: number
+        recommendations:
+          type: array
+          items:
+            type: string
+        generatedAt:
+          type: string
+          format: date-time
+
+    RecommendRequest:
+      type: object
+      required:
+        - clientId
+      properties:
+        clientId:
+          type: string
+        targetPersona:
+          type: string
+        contentType:
+          type: string
+
+    RecommendResponse:
+      type: object
+      properties:
+        clientId:
+          type: string
+        recommendations:
+          type: array
+          items:
+            type: object
+            properties:
+              strategy:
+                type: string
+              reasoning:
+                type: string
+              predictedSuccess:
+                type: number
+              supportingEvidence:
+                type: array
+                items:
+                  type: object
+
+    PerformancePredictRequest:
+      type: object
+      properties:
+        content:
+          type: string
+        headline:
+          type: string
+        publisher:
+          type: string
+        topic:
+          type: string
+
+    PerformancePredictResponse:
+      type: object
+      properties:
+        predictedEngagement:
+          type: number
+          format: float
+        predictedVisibility:
+          type: number
+          format: float
+        confidence:
+          type: number
+          format: float
+        factors:
+          type: array
+          items:
+            $ref: '#/components/schemas/PredictionFactor'

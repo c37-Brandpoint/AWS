@@ -1,0 +1,6 @@
+# Common dependencies for Brandpoint AI Platform Lambda functions
+boto3>=1.34.0
+botocore>=1.34.0
+requests>=2.31.0
+opensearch-py>=2.4.0
+gremlinpython>=3.7.0

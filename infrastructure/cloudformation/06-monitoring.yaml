@@ -1,0 +1,450 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Brandpoint AI Platform - Monitoring Layer (CloudWatch, X-Ray, Budgets)
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+
+  ProjectName:
+    Type: String
+    Default: brandpoint-ai
+
+  AlertEmail:
+    Type: String
+    Default: alerts@codename37.com
+    Description: Email address for alarm notifications
+
+  MonthlyBudgetLimit:
+    Type: Number
+    Default: 700
+    Description: Monthly budget limit in USD
+
+Resources:
+  #############################################################################
+  # SNS Topic for Alerts
+  #############################################################################
+  AlertTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub ${ProjectName}-${Environment}-alerts
+      DisplayName: Brandpoint AI Platform Alerts
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  AlertTopicSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref AlertTopic
+      Protocol: email
+      Endpoint: !Ref AlertEmail
+
+  #############################################################################
+  # CloudWatch Log Groups
+  #############################################################################
+  LambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${ProjectName}-${Environment}
+      RetentionInDays: 30
+
+  APIGatewayLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/api-gateway/${ProjectName}-${Environment}
+      RetentionInDays: 30
+
+  #############################################################################
+  # CloudWatch Dashboard
+  #############################################################################
+  PlatformDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub ${ProjectName}-${Environment}-overview
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {
+              "type": "text",
+              "x": 0,
+              "y": 0,
+              "width": 24,
+              "height": 1,
+              "properties": {
+                "markdown": "# Brandpoint AI Platform - ${Environment}"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 1,
+              "width": 8,
+              "height": 6,
+              "properties": {
+                "title": "API Gateway Requests",
+                "metrics": [
+                  ["AWS/ApiGateway", "Count", "ApiName", "${ProjectName}-${Environment}-api", {"stat": "Sum"}]
+                ],
+                "period": 300,
+                "region": "${AWS::Region}"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 8,
+              "y": 1,
+              "width": 8,
+              "height": 6,
+              "properties": {
+                "title": "API Gateway Latency",
+                "metrics": [
+                  ["AWS/ApiGateway", "Latency", "ApiName", "${ProjectName}-${Environment}-api", {"stat": "p95"}],
+                  ["...", {"stat": "Average"}]
+                ],
+                "period": 300,
+                "region": "${AWS::Region}"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 16,
+              "y": 1,
+              "width": 8,
+              "height": 6,
+              "properties": {
+                "title": "API Gateway Errors",
+                "metrics": [
+                  ["AWS/ApiGateway", "4XXError", "ApiName", "${ProjectName}-${Environment}-api", {"stat": "Sum", "color": "#ff7f0e"}],
+                  [".", "5XXError", ".", ".", {"stat": "Sum", "color": "#d62728"}]
+                ],
+                "period": 300,
+                "region": "${AWS::Region}"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 7,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Lambda Invocations",
+                "metrics": [
+                  ["AWS/Lambda", "Invocations", "FunctionName", "${ProjectName}-${Environment}-load-persona"],
+                  ["...", "${ProjectName}-${Environment}-generate-queries"],
+                  ["...", "${ProjectName}-${Environment}-analyze-visibility"],
+                  ["...", "${ProjectName}-${Environment}-prediction-api"]
+                ],
+                "period": 300,
+                "region": "${AWS::Region}",
+                "stat": "Sum"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 7,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Lambda Errors",
+                "metrics": [
+                  ["AWS/Lambda", "Errors", "FunctionName", "${ProjectName}-${Environment}-load-persona"],
+                  ["...", "${ProjectName}-${Environment}-generate-queries"],
+                  ["...", "${ProjectName}-${Environment}-analyze-visibility"],
+                  ["...", "${ProjectName}-${Environment}-prediction-api"]
+                ],
+                "period": 300,
+                "region": "${AWS::Region}",
+                "stat": "Sum"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 13,
+              "width": 8,
+              "height": 6,
+              "properties": {
+                "title": "Step Functions Executions",
+                "metrics": [
+                  ["AWS/States", "ExecutionsStarted", "StateMachineArn", "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${ProjectName}-${Environment}-persona-agent", {"color": "#2ca02c"}],
+                  [".", "ExecutionsSucceeded", ".", ".", {"color": "#1f77b4"}],
+                  [".", "ExecutionsFailed", ".", ".", {"color": "#d62728"}]
+                ],
+                "period": 300,
+                "region": "${AWS::Region}",
+                "stat": "Sum"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 8,
+              "y": 13,
+              "width": 8,
+              "height": 6,
+              "properties": {
+                "title": "OpenSearch Cluster Health",
+                "metrics": [
+                  ["AWS/ES", "ClusterStatus.green", "DomainName", "${ProjectName}-${Environment}-vectors", "ClientId", "${AWS::AccountId}"],
+                  [".", "ClusterStatus.yellow", ".", ".", ".", "."],
+                  [".", "ClusterStatus.red", ".", ".", ".", "."]
+                ],
+                "period": 300,
+                "region": "${AWS::Region}",
+                "stat": "Maximum"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 16,
+              "y": 13,
+              "width": 8,
+              "height": 6,
+              "properties": {
+                "title": "Neptune CPU Utilization",
+                "metrics": [
+                  ["AWS/Neptune", "CPUUtilization", "DBClusterIdentifier", "${ProjectName}-${Environment}-knowledge-graph"]
+                ],
+                "period": 300,
+                "region": "${AWS::Region}",
+                "stat": "Average"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 19,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "DynamoDB Read/Write Capacity",
+                "metrics": [
+                  ["AWS/DynamoDB", "ConsumedReadCapacityUnits", "TableName", "${ProjectName}-${Environment}-personas"],
+                  [".", "ConsumedWriteCapacityUnits", ".", "."],
+                  [".", "ConsumedReadCapacityUnits", ".", "${ProjectName}-${Environment}-query-results"],
+                  [".", "ConsumedWriteCapacityUnits", ".", "."]
+                ],
+                "period": 300,
+                "region": "${AWS::Region}",
+                "stat": "Sum"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 19,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "SageMaker Endpoint",
+                "metrics": [
+                  ["AWS/SageMaker", "Invocations", "EndpointName", "${ProjectName}-${Environment}-visibility-predictor", "VariantName", "AllTraffic"],
+                  [".", "ModelLatency", ".", ".", ".", "."]
+                ],
+                "period": 300,
+                "region": "${AWS::Region}",
+                "stat": "Sum"
+              }
+            }
+          ]
+        }
+
+  #############################################################################
+  # CloudWatch Alarms
+  #############################################################################
+  LambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${ProjectName}-${Environment}-lambda-errors
+      AlarmDescription: Lambda function errors exceed threshold
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Dimensions:
+        - Name: FunctionName
+          Value: !Sub ${ProjectName}-${Environment}-prediction-api
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 5
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions:
+        - !Ref AlertTopic
+      OKActions:
+        - !Ref AlertTopic
+      TreatMissingData: notBreaching
+
+  APIGateway5XXAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${ProjectName}-${Environment}-api-5xx-errors
+      AlarmDescription: API Gateway 5XX errors exceed threshold
+      MetricName: 5XXError
+      Namespace: AWS/ApiGateway
+      Dimensions:
+        - Name: ApiName
+          Value: !Sub ${ProjectName}-${Environment}-api
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 10
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions:
+        - !Ref AlertTopic
+      TreatMissingData: notBreaching
+
+  APIGatewayLatencyAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${ProjectName}-${Environment}-api-latency
+      AlarmDescription: API Gateway latency exceeds 500ms p95
+      MetricName: Latency
+      Namespace: AWS/ApiGateway
+      Dimensions:
+        - Name: ApiName
+          Value: !Sub ${ProjectName}-${Environment}-api
+      ExtendedStatistic: p95
+      Period: 300
+      EvaluationPeriods: 3
+      Threshold: 500
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions:
+        - !Ref AlertTopic
+      TreatMissingData: notBreaching
+
+  StepFunctionsFailureAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${ProjectName}-${Environment}-step-functions-failures
+      AlarmDescription: Step Functions execution failures
+      MetricName: ExecutionsFailed
+      Namespace: AWS/States
+      Dimensions:
+        - Name: StateMachineArn
+          Value: !Sub arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${ProjectName}-${Environment}-persona-agent
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      AlarmActions:
+        - !Ref AlertTopic
+      TreatMissingData: notBreaching
+
+  OpenSearchClusterRedAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${ProjectName}-${Environment}-opensearch-cluster-red
+      AlarmDescription: OpenSearch cluster status is red
+      MetricName: ClusterStatus.red
+      Namespace: AWS/ES
+      Dimensions:
+        - Name: DomainName
+          Value: !Sub ${ProjectName}-${Environment}-vectors
+        - Name: ClientId
+          Value: !Ref AWS::AccountId
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      AlarmActions:
+        - !Ref AlertTopic
+      TreatMissingData: notBreaching
+
+  NeptuneCPUAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${ProjectName}-${Environment}-neptune-cpu
+      AlarmDescription: Neptune CPU utilization exceeds 80%
+      MetricName: CPUUtilization
+      Namespace: AWS/Neptune
+      Dimensions:
+        - Name: DBClusterIdentifier
+          Value: !Sub ${ProjectName}-${Environment}-knowledge-graph
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 3
+      Threshold: 80
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions:
+        - !Ref AlertTopic
+      TreatMissingData: notBreaching
+
+  SageMakerEndpointErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${ProjectName}-${Environment}-sagemaker-errors
+      AlarmDescription: SageMaker endpoint invocation errors
+      MetricName: Invocation4XXErrors
+      Namespace: AWS/SageMaker
+      Dimensions:
+        - Name: EndpointName
+          Value: !Sub ${ProjectName}-${Environment}-visibility-predictor
+        - Name: VariantName
+          Value: AllTraffic
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 5
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions:
+        - !Ref AlertTopic
+      TreatMissingData: notBreaching
+
+  #############################################################################
+  # AWS Budget
+  #############################################################################
+  MonthlyBudget:
+    Type: AWS::Budgets::Budget
+    Properties:
+      Budget:
+        BudgetName: !Sub ${ProjectName}-${Environment}-monthly-budget
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit:
+          Amount: !Ref MonthlyBudgetLimit
+          Unit: USD
+        CostFilters:
+          TagKeyValue:
+            - !Sub user:Environment$${Environment}
+      NotificationsWithSubscribers:
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 80
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref AlertEmail
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 100
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref AlertEmail
+        - Notification:
+            NotificationType: FORECASTED
+            ComparisonOperator: GREATER_THAN
+            Threshold: 100
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref AlertEmail
+
+Outputs:
+  AlertTopicArn:
+    Description: SNS Alert Topic ARN
+    Value: !Ref AlertTopic
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-AlertTopicArn
+
+  DashboardURL:
+    Description: CloudWatch Dashboard URL
+    Value: !Sub https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards:name=${ProjectName}-${Environment}-overview
+    Export:
+      Name: !Sub ${ProjectName}-${Environment}-DashboardURL
