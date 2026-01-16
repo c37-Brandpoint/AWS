@@ -21,6 +21,9 @@ Parameters:
     Default: https://hub.brandpoint.com
     Description: Base URL for Hub API callbacks
 
+Conditions:
+  IsProd: !Equals [!Ref Environment, prod]
+
 Resources:
   #############################################################################
   # Step Functions Log Group
@@ -43,8 +46,8 @@ Resources:
       TracingConfiguration:
         Enabled: true
       LoggingConfiguration:
-        Level: ALL
-        IncludeExecutionData: true
+        Level: !If [IsProd, ERROR, ALL]
+        IncludeExecutionData: !If [IsProd, false, true]
         Destinations:
           - CloudWatchLogsLogGroup:
               LogGroupArn: !GetAtt StepFunctionsLogGroup.Arn
@@ -343,8 +346,8 @@ Resources:
       TracingConfiguration:
         Enabled: true
       LoggingConfiguration:
-        Level: ALL
-        IncludeExecutionData: true
+        Level: !If [IsProd, ERROR, ALL]
+        IncludeExecutionData: !If [IsProd, false, true]
         Destinations:
           - CloudWatchLogsLogGroup:
               LogGroupArn: !GetAtt StepFunctionsLogGroup.Arn

@@ -84,7 +84,7 @@ echo -e "Stack Name:      ${YELLOW}${STACK_NAME}${NC}"
 echo ""
 
 # Step 1: Create S3 buckets for deployment artifacts
-echo -e "${GREEN}[1/5] Creating deployment buckets...${NC}"
+echo -e "${GREEN}[1/6] Creating deployment buckets...${NC}"
 
 aws s3 mb s3://${TEMPLATES_BUCKET} --region ${REGION} $AWS_ARGS 2>/dev/null || true
 aws s3 mb s3://${LAMBDA_CODE_BUCKET} --region ${REGION} $AWS_ARGS 2>/dev/null || true
@@ -126,7 +126,7 @@ aws s3api put-bucket-encryption \
 echo -e "${GREEN}✓ Buckets created and secured${NC}"
 
 # Step 2: Upload CloudFormation templates
-echo -e "${GREEN}[2/5] Uploading CloudFormation templates...${NC}"
+echo -e "${GREEN}[2/6] Uploading CloudFormation templates...${NC}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INFRA_DIR="${SCRIPT_DIR}/../infrastructure"
@@ -139,7 +139,7 @@ echo -e "${GREEN}✓ Templates uploaded${NC}"
 
 # Step 3: Build and upload Lambda packages (if not skipped)
 if [ "$SKIP_LAMBDA_BUILD" = false ]; then
-    echo -e "${GREEN}[3/5] Building Lambda packages...${NC}"
+    echo -e "${GREEN}[3/6] Building Lambda packages...${NC}"
 
     LAMBDA_DIR="${INFRA_DIR}/lambda"
 
@@ -175,11 +175,66 @@ if [ "$SKIP_LAMBDA_BUILD" = false ]; then
         echo -e "${YELLOW}⚠ No Lambda source directory found. Skipping Lambda build.${NC}"
     fi
 else
-    echo -e "${YELLOW}[3/5] Skipping Lambda build (--skip-lambda-build)${NC}"
+    echo -e "${YELLOW}[3/6] Skipping Lambda build (--skip-lambda-build)${NC}"
 fi
 
-# Step 4: Deploy CloudFormation stack
-echo -e "${GREEN}[4/5] Deploying CloudFormation stack...${NC}"
+# Step 4: Preflight validation
+echo -e "${GREEN}[4/6] Running preflight validation...${NC}"
+
+# Define expected Lambda functions
+EXPECTED_FUNCTIONS=(
+    "analyze-visibility"
+    "content-ingestion"
+    "execute-query"
+    "feature-extraction"
+    "generate-queries"
+    "graph-query"
+    "graph-update"
+    "health-check"
+    "insights-generator"
+    "intelligence-api"
+    "load-persona"
+    "persona-api"
+    "prediction-api"
+    "similarity-search"
+    "store-results"
+)
+
+# Check all Lambda zips exist in S3
+echo "  Checking Lambda packages in S3..."
+MISSING_FUNCTIONS=()
+for func in "${EXPECTED_FUNCTIONS[@]}"; do
+    if ! aws s3 ls s3://${LAMBDA_CODE_BUCKET}/functions/${func}.zip --region ${REGION} $AWS_ARGS > /dev/null 2>&1; then
+        MISSING_FUNCTIONS+=("$func")
+    fi
+done
+
+if [ ${#MISSING_FUNCTIONS[@]} -gt 0 ]; then
+    echo -e "${RED}ERROR: Missing Lambda packages in S3:${NC}"
+    for func in "${MISSING_FUNCTIONS[@]}"; do
+        echo -e "${RED}  - functions/${func}.zip${NC}"
+    done
+    echo ""
+    echo "Run without --skip-lambda-build to package and upload Lambda functions."
+    exit 1
+fi
+echo -e "  ${GREEN}✓ All 15 Lambda packages found in S3${NC}"
+
+# Validate CloudFormation template
+echo "  Validating CloudFormation template..."
+if ! aws cloudformation validate-template \
+    --template-url https://${TEMPLATES_BUCKET}.s3.${REGION}.amazonaws.com/cloudformation/main.yaml \
+    --region ${REGION} $AWS_ARGS > /dev/null 2>&1; then
+    echo -e "${RED}ERROR: CloudFormation template validation failed${NC}"
+    echo "Check the template syntax in infrastructure/cloudformation/main.yaml"
+    exit 1
+fi
+echo -e "  ${GREEN}✓ CloudFormation template valid${NC}"
+
+echo -e "${GREEN}✓ Preflight validation passed${NC}"
+
+# Step 5: Deploy CloudFormation stack
+echo -e "${GREEN}[5/6] Deploying CloudFormation stack...${NC}"
 
 aws cloudformation deploy \
     --template-file ${INFRA_DIR}/cloudformation/main.yaml \
@@ -196,8 +251,8 @@ aws cloudformation deploy \
 
 echo -e "${GREEN}✓ Stack deployed${NC}"
 
-# Step 5: Get stack outputs
-echo -e "${GREEN}[5/5] Retrieving stack outputs...${NC}"
+# Step 6: Get stack outputs
+echo -e "${GREEN}[6/6] Retrieving stack outputs...${NC}"
 
 echo ""
 echo -e "${GREEN}========================================${NC}"

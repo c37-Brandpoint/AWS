@@ -2,7 +2,7 @@
 
 ## For Brandpoint IT Team
 
-**Document Version:** 2.2
+**Document Version:** 2.3
 **Last Updated:** January 2026
 
 ---

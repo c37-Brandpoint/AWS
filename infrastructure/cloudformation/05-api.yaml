@@ -16,6 +16,9 @@ Parameters:
     Default: v1
     Description: API Gateway stage name
 
+Conditions:
+  IsProd: !Equals [!Ref Environment, prod]
+
 Resources:
   #############################################################################
   # REST API
@@ -434,8 +437,8 @@ Resources:
       MethodSettings:
         - ResourcePath: /*
           HttpMethod: '*'
-          LoggingLevel: INFO
-          DataTraceEnabled: true
+          LoggingLevel: !If [IsProd, ERROR, INFO]
+          DataTraceEnabled: !If [IsProd, false, true]
           MetricsEnabled: true
           ThrottlingBurstLimit: 100
           ThrottlingRateLimit: 50
