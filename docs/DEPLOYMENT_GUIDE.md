@@ -2,7 +2,7 @@
 
 ## For Brandpoint IT Team
 
-**Document Version:** 2.3
+**Document Version:** 2.4
 **Last Updated:** January 2026
 
 ---
@@ -25,12 +25,18 @@ If you're comfortable with AWS CLI and bash scripts, use the automated deploymen
 # 1. Clone the repo
 git clone git@github.com:c37-Brandpoint/AWS.git && cd AWS
 
-# 2. Run the deployment script (does everything automatically)
+# 2. Run preflight check to validate your environment
+./scripts/preflight-check.sh
+
+# 3. Run the deployment script (does everything automatically)
 ./scripts/deploy.sh --environment dev --region us-east-1
 
-# 3. Wait 30-45 minutes (OpenSearch and Neptune take time to provision)
+# 4. Wait 30-45 minutes (OpenSearch and Neptune take time to provision)
 
-# 4. Update secrets in AWS Console → Secrets Manager
+# 5. Run smoke tests to verify deployment
+./scripts/smoke-test.sh dev us-east-1
+
+# 6. Update secrets in AWS Console → Secrets Manager
 #    - brandpoint-ai-dev-openai-api-key
 #    - brandpoint-ai-dev-perplexity-api-key
 #    - brandpoint-ai-dev-gemini-api-key
@@ -38,6 +44,11 @@ git clone git@github.com:c37-Brandpoint/AWS.git && cd AWS
 ```
 
 That's it. The script creates S3 buckets, packages Lambda functions, uploads everything, and deploys the CloudFormation stack.
+
+**Rollback (if needed):**
+```bash
+./scripts/rollback.sh dev us-east-1
+```
 
 After deployment, continue to [Step 12: Network Configuration for RDS Access](#step-12-network-configuration-for-rds-access) for VPC peering setup.
 
@@ -586,35 +597,13 @@ Example with real account ID:
 aws s3 sync build/lambda/ s3://brandpoint-ai-dev-lambda-code-123456789012/functions/ --exclude "*" --include "*.zip"
 ```
 
-### 6.2 Create Lambda Layer Package
-
-Create a package for shared dependencies:
-
-```bash
-# Create layer directory
-mkdir -p build/layers/python
-
-# Install dependencies into layer
-pip install boto3 requests opensearch-py gremlinpython requests-aws4auth -t build/layers/python/
-
-# Create ZIP file
-cd build/layers
-zip -r ../lambda/common-deps.zip python/
-cd ../..
-```
-
-Upload the layer:
-```bash
-aws s3 cp build/lambda/common-deps.zip s3://brandpoint-ai-dev-lambda-code-ACCOUNTID/layers/common-deps.zip
-```
-
-### 6.3 Upload CloudFormation Templates
+### 6.2 Upload CloudFormation Templates
 
 ```bash
 aws s3 sync infrastructure/cloudformation/ s3://brandpoint-ai-dev-templates-ACCOUNTID/cloudformation/ --exclude "parameters/*"
 ```
 
-### 6.4 Verify Uploads
+### 6.3 Verify Uploads
 
 Check Lambda code bucket:
 ```bash
@@ -630,9 +619,8 @@ You should see all your files listed.
 
 ```
 ✅ CHECKPOINT:
-   - Lambda bucket contains 15+ ZIP files in functions/
-   - Lambda bucket contains common-deps.zip in layers/
-   - Templates bucket contains 8 YAML files in cloudformation/
+   - Lambda bucket contains 15 ZIP files in functions/
+   - Templates bucket contains 9 YAML files in cloudformation/
 ```
 
 ---
@@ -847,6 +835,12 @@ Now you need to add the actual API keys to AWS Secrets Manager.
 ## STEP 9: VERIFY DEPLOYMENT
 
 Confirm everything was created correctly.
+
+> **Quick Verification:** Run the automated smoke test to verify all resources:
+> ```bash
+> ./scripts/smoke-test.sh dev us-east-1
+> ```
+> This checks all major components automatically. Continue below for manual verification.
 
 ### 9.1 Check CloudFormation Outputs
 
@@ -1671,7 +1665,28 @@ For production:
 
 If you need to completely remove the deployment:
 
-### Delete the CloudFormation Stack
+### Option A: Automated Rollback Script (Recommended)
+
+Use the rollback script which handles everything automatically:
+
+```bash
+./scripts/rollback.sh dev us-east-1
+```
+
+The script will:
+1. Disable EventBridge rules (stop new executions)
+2. Stop any running Step Function executions
+3. Empty S3 buckets (required before stack deletion)
+4. Delete the CloudFormation stack
+5. Clean up deployment buckets
+
+**WARNING**: This deletes all data. Type `ROLLBACK` when prompted to confirm.
+
+### Option B: Manual Rollback via AWS Console
+
+If the script fails or you prefer manual deletion:
+
+#### Delete the CloudFormation Stack
 
 1. Go to **CloudFormation** in AWS Console
 
@@ -1683,7 +1698,7 @@ If you need to completely remove the deployment:
 
 5. Wait for deletion to complete (15-30 minutes)
 
-### Delete S3 Buckets (if needed)
+#### Delete S3 Buckets (if needed)
 
 **Note**: You must empty buckets before deleting them.
 

@@ -15,19 +15,14 @@ For detailed deployment instructions, see: **[docs/DEPLOYMENT_GUIDE.md](docs/DEP
 git clone git@github.com:c37-Brandpoint/AWS.git
 cd AWS
 
-# 2. Package Lambda functions
-cd scripts && ./package-lambdas.sh && cd ..
+# 2. Run preflight check to validate environment
+./scripts/preflight-check.sh
 
-# 3. Upload to S3 (replace ACCOUNT_ID with your AWS account ID)
-aws s3 sync build/lambda/ s3://brandpoint-ai-dev-lambda-code-ACCOUNT_ID/functions/
-aws s3 sync infrastructure/cloudformation/ s3://brandpoint-ai-dev-templates-ACCOUNT_ID/cloudformation/
+# 3. Deploy (handles everything: S3 buckets, Lambda packaging, CloudFormation)
+./scripts/deploy.sh --environment dev --region us-east-1
 
-# 4. Deploy via CloudFormation
-aws cloudformation create-stack \
-  --stack-name brandpoint-ai-dev \
-  --template-url https://brandpoint-ai-dev-templates-ACCOUNT_ID.s3.amazonaws.com/cloudformation/main.yaml \
-  --capabilities CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND \
-  --parameters file://infrastructure/cloudformation/parameters/dev.json
+# 4. Verify deployment with smoke tests
+./scripts/smoke-test.sh dev us-east-1
 ```
 
 ---
@@ -153,9 +148,10 @@ AWS/
 │       └── openapi.yaml                  # OpenAPI 3.0 specification
 │
 ├── scripts/
-│   ├── deploy.sh                         # Deployment script
-│   ├── destroy.sh                        # Teardown script
-│   └── package-lambdas.sh                # Lambda packaging script
+│   ├── deploy.sh                         # Automated deployment (7-step process)
+│   ├── preflight-check.sh                # Pre-deployment validation
+│   ├── smoke-test.sh                     # Post-deployment verification
+│   └── rollback.sh                       # Emergency stack rollback
 │
 └── build/                                # Generated artifacts (gitignored)
     └── lambda/                           # Packaged Lambda ZIPs
@@ -245,15 +241,23 @@ AWS/
 ### Deploy to Dev
 
 ```bash
-# Using the deployment script (recommended - handles everything)
+# 1. Run preflight validation
+./scripts/preflight-check.sh
+
+# 2. Deploy using the automated script
 ./scripts/deploy.sh --environment dev --region us-east-1
 
 # The script will:
 # 1. Create S3 buckets for templates and Lambda code
 # 2. Upload all CloudFormation templates
 # 3. Package and upload all Lambda functions
-# 4. Deploy the CloudFormation stack
-# 5. Output the API endpoint and other resources
+# 4. Run preflight validation
+# 5. Prepare model artifacts (creates placeholder if needed)
+# 6. Deploy the CloudFormation stack
+# 7. Output the API endpoint and other resources
+
+# 3. Verify deployment
+./scripts/smoke-test.sh dev us-east-1
 ```
 
 ### Deploy to Production
@@ -264,10 +268,18 @@ AWS/
 
 ### Post-Deployment
 
-1. Update API keys in Secrets Manager
-2. Upload ML model to S3 model artifacts bucket
-3. Configure Hub integration settings
-4. Run health check verification
+1. Run smoke tests: `./scripts/smoke-test.sh dev us-east-1`
+2. Update API keys in Secrets Manager (OpenAI, Perplexity, Gemini)
+3. Replace placeholder ML model in S3 with trained model
+4. Configure Hub integration settings
+5. Test the API endpoints
+
+### Emergency Rollback
+
+```bash
+# Delete the stack and all resources (use with caution)
+./scripts/rollback.sh dev us-east-1
+```
 
 See **[DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md)** for detailed step-by-step instructions.
 
@@ -342,6 +354,6 @@ Proprietary - Brandpoint / Codename37
 
 ---
 
-**Document Version**: 2.0
+**Document Version**: 2.1
 **Last Updated**: January 2026
 **Status**: Production-Ready for POC Deployment
