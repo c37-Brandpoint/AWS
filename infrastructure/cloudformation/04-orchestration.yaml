@@ -446,13 +446,16 @@ Resources:
   #############################################################################
   # EventBridge Rules
   #############################################################################
+  # NOTE: Schedule is DISABLED by default to prevent immediate failures from
+  # placeholder secrets. Enable manually AFTER configuring secrets in Secrets Manager:
+  #   aws events enable-rule --name ${ProjectName}-${Environment}-persona-agent-schedule
   PersonaAgentScheduleRule:
     Type: AWS::Events::Rule
     Properties:
       Name: !Sub ${ProjectName}-${Environment}-persona-agent-schedule
       Description: Daily scheduled execution of persona agents
       ScheduleExpression: !Ref PersonaAgentSchedule
-      State: ENABLED
+      State: DISABLED
       Targets:
         - Id: PersonaAgentTarget
           Arn: !GetAtt PersonaAgentStateMachine.Arn

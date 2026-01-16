@@ -166,6 +166,55 @@ for bucket_suffix in "templates" "lambda-code"; do
     fi
 done
 
+# Step 6: Check for orphaned resources
+echo ""
+echo "Checking for orphaned resources..."
+
+# Check for orphaned CloudWatch Log Groups
+ORPHAN_LOGS=$(aws logs describe-log-groups \
+    --log-group-name-prefix "/aws/lambda/${PROJECT}-${ENVIRONMENT}" \
+    --query "logGroups[].logGroupName" \
+    --output text \
+    --region $REGION $AWS_ARGS 2>/dev/null || echo "")
+
+if [ -n "$ORPHAN_LOGS" ] && [ "$ORPHAN_LOGS" != "None" ]; then
+    echo -e "${YELLOW}WARNING: Orphaned CloudWatch Log Groups found:${NC}"
+    for log_group in $ORPHAN_LOGS; do
+        echo "  - $log_group"
+    done
+    echo ""
+    echo "  These contain debugging information. To delete manually:"
+    echo "  aws logs delete-log-group --log-group-name <name> --region $REGION"
+fi
+
+# Check for orphaned Elastic IPs (NAT Gateways sometimes leave these)
+ORPHAN_EIPS=$(aws ec2 describe-addresses \
+    --filters "Name=tag:aws:cloudformation:stack-name,Values=$STACK_NAME" \
+    --query "Addresses[].AllocationId" \
+    --output text \
+    --region $REGION $AWS_ARGS 2>/dev/null || echo "")
+
+if [ -n "$ORPHAN_EIPS" ] && [ "$ORPHAN_EIPS" != "None" ]; then
+    echo -e "${YELLOW}WARNING: Orphaned Elastic IPs found:${NC}"
+    for eip in $ORPHAN_EIPS; do
+        echo "  - $eip"
+    done
+    echo ""
+    echo "  To release manually:"
+    echo "  aws ec2 release-address --allocation-id <id> --region $REGION"
+fi
+
+# Check for any unattached EIPs (may or may not be from this stack)
+UNATTACHED_EIPS=$(aws ec2 describe-addresses \
+    --query "Addresses[?AssociationId==null].AllocationId" \
+    --output text \
+    --region $REGION $AWS_ARGS 2>/dev/null || echo "")
+
+if [ -n "$UNATTACHED_EIPS" ] && [ "$UNATTACHED_EIPS" != "None" ]; then
+    EIP_COUNT=$(echo "$UNATTACHED_EIPS" | wc -w)
+    echo -e "${YELLOW}NOTE: $EIP_COUNT unattached Elastic IP(s) in account (may incur charges)${NC}"
+fi
+
 echo ""
 echo -e "${GREEN}========================================${NC}"
 echo -e "${GREEN}Rollback Complete${NC}"

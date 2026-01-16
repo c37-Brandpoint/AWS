@@ -2,7 +2,7 @@
 
 ## For Brandpoint IT Team
 
-**Document Version:** 2.4
+**Document Version:** 2.5
 **Last Updated:** January 2026
 
 ---
@@ -13,11 +13,25 @@
 
 If you're comfortable with AWS CLI and bash scripts, use the automated deployment:
 
+> **⚠️ CRITICAL: NETWORK CONFIGURATION**
+>
+> Before deploying, you **MUST** confirm that VPC CIDR `10.100.0.0/16` does not conflict with Brandpoint's existing network.
+>
+> **If Brandpoint's VPC already uses 10.100.x.x:**
+> - VPC Peering will be IMPOSSIBLE
+> - RDS connectivity will FAIL
+> - You must use a different CIDR (e.g., `10.102.0.0/16`)
+>
+> The preflight check will detect conflicts. If found, deploy with:
+> ```
+> ./scripts/deploy.sh --environment dev --cidr 10.102.0.0/16
+> ```
+
 **Prerequisites:**
 - AWS CLI installed and configured (`aws configure`)
 - Python 3.11+ with pip
 - Git
-- Bash shell (Mac/Linux terminal, or Git Bash/WSL on Windows)
+- **Linux environment** (required for Lambda packaging - use WSL on Windows)
 - zip utility (included in Git Bash, Mac, and Linux)
 
 **Deploy:**
@@ -25,10 +39,11 @@ If you're comfortable with AWS CLI and bash scripts, use the automated deploymen
 # 1. Clone the repo
 git clone git@github.com:c37-Brandpoint/AWS.git && cd AWS
 
-# 2. Run preflight check to validate your environment
+# 2. Run preflight check (detects CIDR conflicts, quota limits, etc.)
 ./scripts/preflight-check.sh
 
 # 3. Run the deployment script (does everything automatically)
+#    Add --cidr <your-cidr> if the preflight check detected a conflict
 ./scripts/deploy.sh --environment dev --region us-east-1
 
 # 4. Wait 30-45 minutes (OpenSearch and Neptune take time to provision)
@@ -41,9 +56,14 @@ git clone git@github.com:c37-Brandpoint/AWS.git && cd AWS
 #    - brandpoint-ai-dev-perplexity-api-key
 #    - brandpoint-ai-dev-gemini-api-key
 #    - brandpoint-ai-dev-hub-service-account-key
+
+# 7. Enable the EventBridge schedule (ONLY after secrets are configured!)
+aws events enable-rule --name brandpoint-ai-dev-persona-agent-schedule --region us-east-1
 ```
 
 That's it. The script creates S3 buckets, packages Lambda functions, uploads everything, and deploys the CloudFormation stack.
+
+**IMPORTANT:** The EventBridge schedule is deployed **DISABLED** to prevent failures from placeholder secrets. You must enable it manually after step 6.
 
 **Rollback (if needed):**
 ```bash

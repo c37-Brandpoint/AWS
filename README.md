@@ -10,12 +10,19 @@ Production-ready Infrastructure as Code (IaC) for deploying the Brandpoint AI Pl
 
 For detailed deployment instructions, see: **[docs/DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md)**
 
+> **⚠️ NETWORK CONFIGURATION REQUIRED**
+>
+> Before deploying, confirm the VPC CIDR `10.100.0.0/16` does not conflict with Brandpoint's existing network.
+> If it does, use a different CIDR: `./scripts/deploy.sh --cidr 10.102.0.0/16`
+>
+> The preflight check will detect CIDR conflicts automatically.
+
 ```bash
 # 1. Clone the repository
 git clone git@github.com:c37-Brandpoint/AWS.git
 cd AWS
 
-# 2. Run preflight check to validate environment
+# 2. Run preflight check (detects CIDR conflicts, quota limits, etc.)
 ./scripts/preflight-check.sh
 
 # 3. Deploy (handles everything: S3 buckets, Lambda packaging, CloudFormation)
@@ -24,6 +31,8 @@ cd AWS
 # 4. Verify deployment with smoke tests
 ./scripts/smoke-test.sh dev us-east-1
 ```
+
+**Note:** The EventBridge schedule is deployed DISABLED. After configuring secrets, enable it manually.
 
 ---
 
@@ -354,6 +363,6 @@ Proprietary - Brandpoint / Codename37
 
 ---
 
-**Document Version**: 2.1
+**Document Version**: 2.2
 **Last Updated**: January 2026
 **Status**: Production-Ready for POC Deployment

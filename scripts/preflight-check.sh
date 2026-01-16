@@ -6,7 +6,8 @@
 #
 # Usage:
 #   ./preflight-check.sh
-#   ./preflight-check.sh --profile myprofile
+#   ./preflight-check.sh --cidr 10.101.0.0/16
+#   ./preflight-check.sh --profile myprofile --cidr 10.102.0.0/16
 #
 
 set -e
@@ -18,6 +19,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 PROFILE=""
+VPC_CIDR="10.100.0.0/16"
 ERRORS=0
 WARNINGS=0
 
@@ -27,6 +29,19 @@ while [[ $# -gt 0 ]]; do
         -p|--profile)
             PROFILE="$2"
             shift 2
+            ;;
+        -c|--cidr)
+            VPC_CIDR="$2"
+            shift 2
+            ;;
+        -h|--help)
+            echo "Usage: $0 [options]"
+            echo ""
+            echo "Options:"
+            echo "  -p, --profile    AWS CLI profile to use"
+            echo "  -c, --cidr       VPC CIDR to check for conflicts [default: 10.100.0.0/16]"
+            echo "  -h, --help       Show this help message"
+            exit 0
             ;;
         *)
             shift
@@ -194,6 +209,109 @@ fi
 
 echo ""
 echo "========================================"
+echo "Network Reconnaissance (CIDR: $VPC_CIDR)"
+echo "========================================"
+echo ""
+
+# 10. Check for VPC CIDR conflicts
+echo -n "Checking for CIDR conflicts... "
+CONFLICT=$(aws ec2 describe-vpcs \
+    --filters Name=cidr,Values=$VPC_CIDR \
+    --query "Vpcs[].VpcId" --output text $AWS_ARGS 2>/dev/null || echo "")
+
+if [ -n "$CONFLICT" ] && [ "$CONFLICT" != "None" ]; then
+    echo -e "${RED}CONFLICT DETECTED${NC}"
+    echo -e "  ${RED}CRITICAL: CIDR $VPC_CIDR is already in use by VPC: $CONFLICT${NC}"
+    echo "  You MUST choose a different CIDR. Common alternatives:"
+    echo "    - 10.101.0.0/16"
+    echo "    - 10.102.0.0/16"
+    echo "    - 172.20.0.0/16"
+    echo ""
+    echo "  Run deployment with: ./scripts/deploy.sh --cidr <new-cidr>"
+    ERRORS=$((ERRORS + 1))
+else
+    echo -e "${GREEN}OK${NC} (no conflict)"
+fi
+
+# 11. Check Elastic IP quota (needed for NAT Gateway)
+echo -n "Checking Elastic IP quota... "
+EIP_LIMIT=$(aws service-quotas get-service-quota \
+    --service-code ec2 \
+    --quota-code L-0263D0A3 \
+    --query "Quota.Value" --output text $AWS_ARGS 2>/dev/null || echo "5")
+EIP_USED=$(aws ec2 describe-addresses --query "length(Addresses)" --output text $AWS_ARGS 2>/dev/null || echo "0")
+
+# Handle potential "None" or empty responses
+if [ "$EIP_LIMIT" = "None" ] || [ -z "$EIP_LIMIT" ]; then
+    EIP_LIMIT=5
+fi
+if [ "$EIP_USED" = "None" ] || [ -z "$EIP_USED" ]; then
+    EIP_USED=0
+fi
+
+EIP_AVAILABLE=$((EIP_LIMIT - EIP_USED))
+if [ "$EIP_AVAILABLE" -lt 1 ]; then
+    echo -e "${RED}FAIL${NC} ($EIP_USED/$EIP_LIMIT used)"
+    echo "  NAT Gateway requires an Elastic IP. Request quota increase or release unused EIPs."
+    ERRORS=$((ERRORS + 1))
+else
+    echo -e "${GREEN}OK${NC} ($EIP_USED/$EIP_LIMIT used, $EIP_AVAILABLE available)"
+fi
+
+# 12. Check VPC quota
+echo -n "Checking VPC quota... "
+VPC_LIMIT=$(aws service-quotas get-service-quota \
+    --service-code vpc \
+    --quota-code L-F678F1CE \
+    --query "Quota.Value" --output text $AWS_ARGS 2>/dev/null || echo "5")
+VPC_COUNT=$(aws ec2 describe-vpcs --query "length(Vpcs)" --output text $AWS_ARGS 2>/dev/null || echo "0")
+
+# Handle potential "None" or empty responses
+if [ "$VPC_LIMIT" = "None" ] || [ -z "$VPC_LIMIT" ]; then
+    VPC_LIMIT=5
+fi
+if [ "$VPC_COUNT" = "None" ] || [ -z "$VPC_COUNT" ]; then
+    VPC_COUNT=0
+fi
+
+VPC_AVAILABLE=$((VPC_LIMIT - VPC_COUNT))
+if [ "$VPC_AVAILABLE" -lt 1 ]; then
+    echo -e "${RED}FAIL${NC} ($VPC_COUNT/$VPC_LIMIT used)"
+    echo "  No VPC capacity available. Request quota increase or delete unused VPCs."
+    ERRORS=$((ERRORS + 1))
+else
+    echo -e "${GREEN}OK${NC} ($VPC_COUNT/$VPC_LIMIT used, $VPC_AVAILABLE available)"
+fi
+
+# 13. Check NAT Gateway quota
+echo -n "Checking NAT Gateway quota... "
+NAT_LIMIT=$(aws service-quotas get-service-quota \
+    --service-code vpc \
+    --quota-code L-FE5A380F \
+    --query "Quota.Value" --output text $AWS_ARGS 2>/dev/null || echo "5")
+NAT_COUNT=$(aws ec2 describe-nat-gateways \
+    --filter Name=state,Values=available,pending \
+    --query "length(NatGateways)" --output text $AWS_ARGS 2>/dev/null || echo "0")
+
+# Handle potential "None" or empty responses
+if [ "$NAT_LIMIT" = "None" ] || [ -z "$NAT_LIMIT" ]; then
+    NAT_LIMIT=5
+fi
+if [ "$NAT_COUNT" = "None" ] || [ -z "$NAT_COUNT" ]; then
+    NAT_COUNT=0
+fi
+
+NAT_AVAILABLE=$((NAT_LIMIT - NAT_COUNT))
+if [ "$NAT_AVAILABLE" -lt 1 ]; then
+    echo -e "${RED}FAIL${NC} ($NAT_COUNT/$NAT_LIMIT used)"
+    echo "  No NAT Gateway capacity. Request quota increase or delete unused NAT Gateways."
+    ERRORS=$((ERRORS + 1))
+else
+    echo -e "${GREEN}OK${NC} ($NAT_COUNT/$NAT_LIMIT used, $NAT_AVAILABLE available)"
+fi
+
+echo ""
+echo "========================================"
 if [ $ERRORS -eq 0 ]; then
     if [ $WARNINGS -gt 0 ]; then
         echo -e "${YELLOW}PREFLIGHT PASSED WITH WARNINGS${NC}"
@@ -203,10 +321,12 @@ if [ $ERRORS -eq 0 ]; then
         echo "Ready to deploy!"
     fi
     echo ""
-    echo "Run: ./scripts/deploy.sh --environment dev --region us-east-1"
+    echo "Run: ./scripts/deploy.sh --environment dev --region us-east-1 --cidr $VPC_CIDR"
     exit 0
 else
     echo -e "${RED}PREFLIGHT FAILED${NC}"
     echo "$ERRORS error(s) must be resolved before deploying"
+    echo ""
+    echo "Fix the issues above before running deploy.sh"
     exit 1
 fi

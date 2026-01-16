@@ -5,6 +5,9 @@
 # Usage:
 #   ./deploy.sh --environment dev --region us-east-1
 #   ./deploy.sh --environment prod --region us-east-1 --profile production
+#   ./deploy.sh --environment prod --cidr 10.102.0.0/16  # Custom VPC CIDR
+#
+# IMPORTANT: Run preflight-check.sh BEFORE this script to validate your environment.
 #
 
 set -e
@@ -15,6 +18,8 @@ REGION="us-east-1"
 PROJECT_NAME="brandpoint-ai"
 PROFILE=""
 SKIP_LAMBDA_BUILD=false
+VPC_CIDR="10.100.0.0/16"
+SKIP_CONFIRM=false
 
 # Colors for output
 RED='\033[0;31m'
@@ -41,6 +46,14 @@ while [[ $# -gt 0 ]]; do
             SKIP_LAMBDA_BUILD=true
             shift
             ;;
+        -c|--cidr)
+            VPC_CIDR="$2"
+            shift 2
+            ;;
+        -y|--yes)
+            SKIP_CONFIRM=true
+            shift
+            ;;
         -h|--help)
             echo "Usage: $0 [options]"
             echo ""
@@ -48,8 +61,13 @@ while [[ $# -gt 0 ]]; do
             echo "  -e, --environment    Environment (dev, staging, prod) [default: dev]"
             echo "  -r, --region         AWS region [default: us-east-1]"
             echo "  -p, --profile        AWS CLI profile to use"
+            echo "  -c, --cidr           VPC CIDR block [default: 10.100.0.0/16]"
+            echo "  -y, --yes            Skip confirmation prompts"
             echo "  --skip-lambda-build  Skip Lambda package build"
             echo "  -h, --help           Show this help message"
+            echo ""
+            echo "IMPORTANT: Ensure VPC CIDR does not conflict with existing networks."
+            echo "Run ./scripts/preflight-check.sh first to detect CIDR conflicts."
             exit 0
             ;;
         *)
@@ -67,6 +85,27 @@ else
     AWS_ARGS=""
 fi
 
+# OS Check: Lambda packages with native dependencies must be built on Linux
+if [ "$SKIP_LAMBDA_BUILD" = false ]; then
+    if [[ "$OSTYPE" != "linux-gnu"* ]]; then
+        echo -e "${RED}========================================${NC}"
+        echo -e "${RED}ERROR: Lambda Build Requires Linux${NC}"
+        echo -e "${RED}========================================${NC}"
+        echo ""
+        echo "Current OS: $OSTYPE"
+        echo ""
+        echo "Lambda packages must be built on Linux to ensure binary compatibility"
+        echo "with AWS Lambda's Amazon Linux runtime."
+        echo ""
+        echo "Options:"
+        echo "  1. Run this script on a Linux machine or EC2 instance"
+        echo "  2. Use --skip-lambda-build if packages are already in S3"
+        echo "  3. Use WSL (Windows Subsystem for Linux) on Windows"
+        echo ""
+        exit 1
+    fi
+fi
+
 # Derived values
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text $AWS_ARGS)
 TEMPLATES_BUCKET="${PROJECT_NAME}-${ENVIRONMENT}-templates-${ACCOUNT_ID}"
@@ -81,7 +120,35 @@ echo -e "Environment:     ${YELLOW}${ENVIRONMENT}${NC}"
 echo -e "Region:          ${YELLOW}${REGION}${NC}"
 echo -e "Account ID:      ${YELLOW}${ACCOUNT_ID}${NC}"
 echo -e "Stack Name:      ${YELLOW}${STACK_NAME}${NC}"
+echo -e "VPC CIDR:        ${YELLOW}${VPC_CIDR}${NC}"
 echo ""
+
+# CIDR Confirmation - Critical for VPC Peering compatibility
+if [ "$SKIP_CONFIRM" = false ]; then
+    echo -e "${YELLOW}========================================${NC}"
+    echo -e "${YELLOW}NETWORK CONFIGURATION CHECK${NC}"
+    echo -e "${YELLOW}========================================${NC}"
+    echo ""
+    echo -e "This deployment will create a VPC with CIDR: ${YELLOW}${VPC_CIDR}${NC}"
+    echo ""
+    echo -e "${YELLOW}IMPORTANT:${NC} This CIDR must NOT overlap with Brandpoint's existing network."
+    echo "If Brandpoint's VPC already uses ${VPC_CIDR}, VPC Peering will be IMPOSSIBLE."
+    echo ""
+    echo "Common alternatives if 10.100.0.0/16 conflicts:"
+    echo "  - 10.101.0.0/16"
+    echo "  - 10.102.0.0/16"
+    echo "  - 172.20.0.0/16"
+    echo ""
+    read -p "Continue with VPC CIDR ${VPC_CIDR}? (y/N): " CONFIRM
+    if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then
+        echo ""
+        echo "Deployment cancelled. To use a different CIDR, run:"
+        echo "  $0 --environment ${ENVIRONMENT} --cidr <your-cidr>"
+        echo ""
+        exit 1
+    fi
+    echo ""
+fi
 
 # Step 1: Create S3 buckets for deployment artifacts
 echo -e "${GREEN}[1/7] Creating deployment buckets...${NC}"
@@ -320,6 +387,7 @@ aws cloudformation deploy \
         ProjectName=${PROJECT_NAME} \
         TemplatesBucket=${TEMPLATES_BUCKET} \
         LambdaCodeBucket=${LAMBDA_CODE_BUCKET} \
+        VpcCidr=${VPC_CIDR} \
     $AWS_ARGS \
     --no-fail-on-empty-changeset
 
@@ -342,20 +410,28 @@ aws cloudformation describe-stacks \
     $AWS_ARGS
 
 echo ""
-echo -e "${YELLOW}Next Steps:${NC}"
+echo -e "${YELLOW}========================================${NC}"
+echo -e "${YELLOW}REQUIRED POST-DEPLOYMENT STEPS${NC}"
+echo -e "${YELLOW}========================================${NC}"
+echo ""
+echo -e "${RED}NOTE: The EventBridge schedule is DISABLED by default to prevent${NC}"
+echo -e "${RED}errors from placeholder secrets. Complete steps 1-2 before enabling.${NC}"
+echo ""
 echo "1. Update secrets in Secrets Manager with actual API keys:"
-echo "   aws secretsmanager put-secret-value --secret-id ${PROJECT_NAME}-${ENVIRONMENT}-openai-api-key --secret-string '{\"apiKey\":\"your-key\"}'"
-echo "   aws secretsmanager put-secret-value --secret-id ${PROJECT_NAME}-${ENVIRONMENT}-perplexity-api-key --secret-string '{\"apiKey\":\"your-key\"}'"
-echo "   aws secretsmanager put-secret-value --secret-id ${PROJECT_NAME}-${ENVIRONMENT}-gemini-api-key --secret-string '{\"apiKey\":\"your-key\"}'"
+echo "   aws secretsmanager put-secret-value --secret-id ${PROJECT_NAME}-${ENVIRONMENT}-openai-api-key --secret-string '{\"apiKey\":\"your-key\"}' --region ${REGION} $AWS_ARGS"
+echo "   aws secretsmanager put-secret-value --secret-id ${PROJECT_NAME}-${ENVIRONMENT}-perplexity-api-key --secret-string '{\"apiKey\":\"your-key\"}' --region ${REGION} $AWS_ARGS"
+echo "   aws secretsmanager put-secret-value --secret-id ${PROJECT_NAME}-${ENVIRONMENT}-gemini-api-key --secret-string '{\"apiKey\":\"your-key\"}' --region ${REGION} $AWS_ARGS"
 echo ""
 echo "2. Replace placeholder ML model in S3 with trained model:"
-echo "   aws s3 cp model.tar.gz s3://${MODEL_ARTIFACTS_BUCKET}/${MODEL_KEY}"
-echo "   (A placeholder model was deployed - predictions will return errors until replaced)"
+echo "   aws s3 cp model.tar.gz s3://${MODEL_ARTIFACTS_BUCKET}/${MODEL_KEY} --region ${REGION} $AWS_ARGS"
 echo ""
-echo "3. Run smoke tests to verify deployment:"
+echo "3. Enable the EventBridge schedule (ONLY after steps 1-2 are complete):"
+echo "   aws events enable-rule --name ${PROJECT_NAME}-${ENVIRONMENT}-persona-agent-schedule --region ${REGION} $AWS_ARGS"
+echo ""
+echo "4. Run smoke tests to verify deployment:"
 echo "   ./scripts/smoke-test.sh ${ENVIRONMENT} ${REGION}"
 echo ""
-echo "4. Create initial personas in DynamoDB"
+echo "5. Test the API endpoint and create initial personas"
 echo ""
-echo "5. Test the API endpoint"
+echo -e "${GREEN}Deployment configuration saved. VPC CIDR: ${VPC_CIDR}${NC}"
 echo ""
