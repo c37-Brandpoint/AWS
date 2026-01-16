@@ -8,31 +8,23 @@ Production-ready Infrastructure as Code (IaC) for deploying the Brandpoint AI Pl
 
 ## Quick Start
 
-For detailed deployment instructions, see: **[docs/DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md)**
-
-> **⚠️ NETWORK CONFIGURATION REQUIRED**
->
-> Before deploying, confirm the VPC CIDR `10.100.0.0/16` does not conflict with Brandpoint's existing network.
-> If it does, use a different CIDR: `./scripts/deploy.sh --cidr 10.102.0.0/16`
->
-> The preflight check will detect CIDR conflicts automatically.
+**One command to deploy everything:**
 
 ```bash
-# 1. Clone the repository
-git clone git@github.com:c37-Brandpoint/AWS.git
-cd AWS
-
-# 2. Run preflight check (detects CIDR conflicts, quota limits, etc.)
-./scripts/preflight-check.sh
-
-# 3. Deploy (handles everything: S3 buckets, Lambda packaging, CloudFormation)
-./scripts/deploy.sh --environment dev --region us-east-1
-
-# 4. Verify deployment with smoke tests
-./scripts/smoke-test.sh dev us-east-1
+git clone git@github.com:c37-Brandpoint/AWS.git && cd AWS
+./scripts/brandpoint-deploy.sh --env dev
 ```
 
-**Note:** The EventBridge schedule is deployed DISABLED. After configuring secrets, enable it manually.
+That's it. The script will:
+- Run preflight checks (credentials, quotas, network conflicts)
+- Auto-select a safe VPC CIDR (no manual network configuration needed)
+- Deploy all infrastructure
+- Guide you through secrets configuration
+- Offer to enable scheduled jobs when ready
+
+For the quick reference guide, see: **[docs/BRANDPOINT_RUNBOOK.md](docs/BRANDPOINT_RUNBOOK.md)**
+
+For detailed instructions, see: **[docs/DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md)**
 
 ---
 
@@ -157,10 +149,13 @@ AWS/
 │       └── openapi.yaml                  # OpenAPI 3.0 specification
 │
 ├── scripts/
+│   ├── brandpoint-deploy.sh              # ONE-COMMAND deployment (recommended)
 │   ├── deploy.sh                         # Automated deployment (7-step process)
 │   ├── preflight-check.sh                # Pre-deployment validation
 │   ├── smoke-test.sh                     # Post-deployment verification
-│   └── rollback.sh                       # Emergency stack rollback
+│   ├── ignite.sh                         # Enable schedules (after secrets configured)
+│   ├── rollback.sh                       # Emergency stack rollback
+│   └── destroy.sh                        # Complete teardown
 │
 └── build/                                # Generated artifacts (gitignored)
     └── lambda/                           # Packaged Lambda ZIPs
@@ -247,47 +242,41 @@ AWS/
 - Bash shell (Mac/Linux terminal, or **Git Bash/WSL on Windows**)
 - zip utility (included with Git Bash, Mac, and Linux)
 
-### Deploy to Dev
+### Deploy to Dev (One Command)
 
 ```bash
-# 1. Run preflight validation
-./scripts/preflight-check.sh
-
-# 2. Deploy using the automated script
-./scripts/deploy.sh --environment dev --region us-east-1
-
-# The script will:
-# 1. Create S3 buckets for templates and Lambda code
-# 2. Upload all CloudFormation templates
-# 3. Package and upload all Lambda functions
-# 4. Run preflight validation
-# 5. Prepare model artifacts (creates placeholder if needed)
-# 6. Deploy the CloudFormation stack
-# 7. Output the API endpoint and other resources
-
-# 3. Verify deployment
-./scripts/smoke-test.sh dev us-east-1
+./scripts/brandpoint-deploy.sh --env dev
 ```
+
+The script handles everything automatically:
+- Preflight checks (credentials, quotas, CIDR conflicts)
+- Auto-selects a safe VPC CIDR
+- Deploys all infrastructure
+- Runs smoke tests
+- Guides you through secrets configuration
+- Enables scheduled jobs when ready
 
 ### Deploy to Production
 
 ```bash
-./scripts/deploy.sh --environment prod --region us-east-1
+./scripts/brandpoint-deploy.sh --env prod
 ```
 
 ### Post-Deployment
 
-1. Run smoke tests: `./scripts/smoke-test.sh dev us-east-1`
-2. Update API keys in Secrets Manager (OpenAI, Perplexity, Gemini)
-3. Replace placeholder ML model in S3 with trained model
-4. Configure Hub integration settings
-5. Test the API endpoints
+After deployment, the script will guide you through:
+1. Configuring API keys in Secrets Manager
+2. Enabling scheduled jobs with `./scripts/ignite.sh --env dev`
+3. Setting up VPC Peering for RDS access (see DEPLOYMENT_GUIDE.md)
 
 ### Emergency Rollback
 
 ```bash
 # Delete the stack and all resources (use with caution)
 ./scripts/rollback.sh dev us-east-1
+
+# Or complete teardown including deployment buckets
+./scripts/destroy.sh --environment dev --region us-east-1
 ```
 
 See **[DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md)** for detailed step-by-step instructions.
@@ -363,6 +352,6 @@ Proprietary - Brandpoint / Codename37
 
 ---
 
-**Document Version**: 2.2
+**Document Version**: 3.0
 **Last Updated**: January 2026
 **Status**: Production-Ready for POC Deployment

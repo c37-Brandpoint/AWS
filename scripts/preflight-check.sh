@@ -213,24 +213,55 @@ echo "Network Reconnaissance (CIDR: $VPC_CIDR)"
 echo "========================================"
 echo ""
 
-# 10. Check for VPC CIDR conflicts
+# 10. Check for VPC CIDR conflicts (using overlap detection, not just equality)
 echo -n "Checking for CIDR conflicts... "
-CONFLICT=$(aws ec2 describe-vpcs \
-    --filters Name=cidr,Values=$VPC_CIDR \
-    --query "Vpcs[].VpcId" --output text $AWS_ARGS 2>/dev/null || echo "")
 
-if [ -n "$CONFLICT" ] && [ "$CONFLICT" != "None" ]; then
-    echo -e "${RED}CONFLICT DETECTED${NC}"
-    echo -e "  ${RED}CRITICAL: CIDR $VPC_CIDR is already in use by VPC: $CONFLICT${NC}"
-    echo "  You MUST choose a different CIDR. Common alternatives:"
-    echo "    - 10.101.0.0/16"
-    echo "    - 10.102.0.0/16"
+# Get all existing VPC CIDRs
+EXISTING_CIDRS=$(aws ec2 describe-vpcs --query "Vpcs[].CidrBlock" --output text $AWS_ARGS 2>/dev/null || echo "")
+
+# Use Python to check for CIDR overlap (catches partial overlaps, not just exact matches)
+if [ -n "$EXISTING_CIDRS" ]; then
+    OVERLAP_RESULT=$(python3 << EOF
+import ipaddress
+import sys
+
+target = ipaddress.ip_network('$VPC_CIDR')
+existing_cidrs = '''$EXISTING_CIDRS'''.split()
+conflicts = []
+
+for cidr in existing_cidrs:
+    if cidr:
+        try:
+            existing_net = ipaddress.ip_network(cidr)
+            if target.overlaps(existing_net):
+                conflicts.append(cidr)
+        except ValueError:
+            pass
+
+if conflicts:
+    print("CONFLICT:" + ",".join(conflicts))
+else:
+    print("OK")
+EOF
+)
+else
+    OVERLAP_RESULT="OK"
+fi
+
+if [[ "$OVERLAP_RESULT" == CONFLICT:* ]]; then
+    CONFLICTING_CIDRS="${OVERLAP_RESULT#CONFLICT:}"
+    echo -e "${RED}OVERLAP DETECTED${NC}"
+    echo -e "  ${RED}CRITICAL: CIDR $VPC_CIDR overlaps with existing VPC(s): $CONFLICTING_CIDRS${NC}"
+    echo "  You MUST choose a different CIDR. Recommended alternatives:"
+    echo "    - 10.200.0.0/16"
+    echo "    - 10.201.0.0/16"
     echo "    - 172.20.0.0/16"
     echo ""
     echo "  Run deployment with: ./scripts/deploy.sh --cidr <new-cidr>"
+    echo "  Or use auto-selection: ./scripts/brandpoint-deploy.sh --env $ENVIRONMENT"
     ERRORS=$((ERRORS + 1))
 else
-    echo -e "${GREEN}OK${NC} (no conflict)"
+    echo -e "${GREEN}OK${NC} (no overlap with existing VPCs)"
 fi
 
 # 11. Check Elastic IP quota (needed for NAT Gateway)

@@ -218,7 +218,15 @@ if [ "$SKIP_LAMBDA_BUILD" = false ]; then
 
                 # Create zip package
                 cd "$func_dir"
-                if [ -f "requirements.txt" ]; then
+                # Prefer requirements.lock.txt for reproducible builds
+                if [ -f "requirements.lock.txt" ]; then
+                    pip install -r requirements.lock.txt -t ./package --quiet
+                    cd package
+                    zip -r9 ../${func_name}.zip . --quiet
+                    cd ..
+                    zip -g ${func_name}.zip *.py --quiet 2>/dev/null || true
+                    rm -rf package
+                elif [ -f "requirements.txt" ]; then
                     pip install -r requirements.txt -t ./package --quiet
                     cd package
                     zip -r9 ../${func_name}.zip . --quiet

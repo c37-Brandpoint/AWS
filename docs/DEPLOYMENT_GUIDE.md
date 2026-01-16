@@ -2,73 +2,52 @@
 
 ## For Brandpoint IT Team
 
-**Document Version:** 2.5
+**Document Version:** 3.0
 **Last Updated:** January 2026
 
 ---
 
 ## CHOOSE YOUR PATH
 
-### Option A: Quick Start (Experienced IT - 30-45 minutes)
+### Option A: One-Command Deployment (Recommended - 30-45 minutes)
 
-If you're comfortable with AWS CLI and bash scripts, use the automated deployment:
+**Run one command and follow the prompts:**
 
-> **⚠️ CRITICAL: NETWORK CONFIGURATION**
->
-> Before deploying, you **MUST** confirm that VPC CIDR `10.100.0.0/16` does not conflict with Brandpoint's existing network.
->
-> **If Brandpoint's VPC already uses 10.100.x.x:**
-> - VPC Peering will be IMPOSSIBLE
-> - RDS connectivity will FAIL
-> - You must use a different CIDR (e.g., `10.102.0.0/16`)
->
-> The preflight check will detect conflicts. If found, deploy with:
-> ```
-> ./scripts/deploy.sh --environment dev --cidr 10.102.0.0/16
-> ```
+```bash
+git clone git@github.com:c37-Brandpoint/AWS.git && cd AWS
+./scripts/brandpoint-deploy.sh --env dev
+```
+
+The script handles everything:
+1. Validates your AWS credentials and quotas
+2. **Auto-selects a safe VPC CIDR** (no manual network configuration needed!)
+3. Deploys all infrastructure
+4. Runs verification tests
+5. Shows you exactly which commands to run for secrets
+6. Enables scheduled jobs when you're ready
 
 **Prerequisites:**
 - AWS CLI installed and configured (`aws configure`)
 - Python 3.11+ with pip
 - Git
 - **Linux environment** (required for Lambda packaging - use WSL on Windows)
-- zip utility (included in Git Bash, Mac, and Linux)
 
-**Deploy:**
+**For production:**
 ```bash
-# 1. Clone the repo
-git clone git@github.com:c37-Brandpoint/AWS.git && cd AWS
-
-# 2. Run preflight check (detects CIDR conflicts, quota limits, etc.)
-./scripts/preflight-check.sh
-
-# 3. Run the deployment script (does everything automatically)
-#    Add --cidr <your-cidr> if the preflight check detected a conflict
-./scripts/deploy.sh --environment dev --region us-east-1
-
-# 4. Wait 30-45 minutes (OpenSearch and Neptune take time to provision)
-
-# 5. Run smoke tests to verify deployment
-./scripts/smoke-test.sh dev us-east-1
-
-# 6. Update secrets in AWS Console → Secrets Manager
-#    - brandpoint-ai-dev-openai-api-key
-#    - brandpoint-ai-dev-perplexity-api-key
-#    - brandpoint-ai-dev-gemini-api-key
-#    - brandpoint-ai-dev-hub-service-account-key
-
-# 7. Enable the EventBridge schedule (ONLY after secrets are configured!)
-aws events enable-rule --name brandpoint-ai-dev-persona-agent-schedule --region us-east-1
+./scripts/brandpoint-deploy.sh --env prod
 ```
 
-That's it. The script creates S3 buckets, packages Lambda functions, uploads everything, and deploys the CloudFormation stack.
-
-**IMPORTANT:** The EventBridge schedule is deployed **DISABLED** to prevent failures from placeholder secrets. You must enable it manually after step 6.
+**Resume interrupted deployment:**
+```bash
+./scripts/brandpoint-deploy.sh --env dev --resume
+```
 
 **Rollback (if needed):**
 ```bash
 ./scripts/rollback.sh dev us-east-1
 ```
+
+**For a one-page reference guide, see: [BRANDPOINT_RUNBOOK.md](BRANDPOINT_RUNBOOK.md)**
 
 After deployment, continue to [Step 12: Network Configuration for RDS Access](#step-12-network-configuration-for-rds-access) for VPC peering setup.
 
