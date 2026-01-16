@@ -236,28 +236,30 @@ AWS/
 ### Prerequisites
 
 - AWS Account with Administrator access
-- AWS CLI configured
-- Python 3.11+
+- AWS CLI installed and configured (`aws configure`)
+- Python 3.11+ with pip
 - Git
+- Bash shell (Mac/Linux terminal, or **Git Bash/WSL on Windows**)
+- zip utility (included with Git Bash, Mac, and Linux)
 
 ### Deploy to Dev
 
 ```bash
-# Using the deployment script
-./scripts/deploy.sh dev us-east-1
+# Using the deployment script (recommended - handles everything)
+./scripts/deploy.sh --environment dev --region us-east-1
 
-# Or using AWS CLI directly
-aws cloudformation create-stack \
-  --stack-name brandpoint-ai-dev \
-  --template-url https://YOUR-TEMPLATES-BUCKET.s3.amazonaws.com/cloudformation/main.yaml \
-  --capabilities CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND \
-  --parameters file://infrastructure/cloudformation/parameters/dev.json
+# The script will:
+# 1. Create S3 buckets for templates and Lambda code
+# 2. Upload all CloudFormation templates
+# 3. Package and upload all Lambda functions
+# 4. Deploy the CloudFormation stack
+# 5. Output the API endpoint and other resources
 ```
 
 ### Deploy to Production
 
 ```bash
-./scripts/deploy.sh prod us-east-1
+./scripts/deploy.sh --environment prod --region us-east-1
 ```
 
 ### Post-Deployment

@@ -27,22 +27,6 @@ Parameters:
 
 Resources:
   #############################################################################
-  # Lambda Layer (Common Dependencies)
-  #############################################################################
-  CommonDependenciesLayer:
-    Type: AWS::Lambda::LayerVersion
-    Properties:
-      LayerName: !Sub ${ProjectName}-${Environment}-common-deps
-      Description: Common Python dependencies for Lambda functions
-      Content:
-        S3Bucket: !Ref LambdaCodeBucket
-        S3Key: layers/common-deps.zip
-      CompatibleRuntimes:
-        - python3.11
-      CompatibleArchitectures:
-        - x86_64
-
-  #############################################################################
   # Persona Agent Lambda Functions
   #############################################################################
   LoadPersonaFunction:
@@ -776,8 +760,3 @@ Outputs:
     Value: !GetAtt SageMakerEndpoint.EndpointName
     Export:
       Name: !Sub ${ProjectName}-${Environment}-SageMakerEndpoint
-
-  CommonDependenciesLayerArn:
-    Value: !Ref CommonDependenciesLayer
-    Export:
-      Name: !Sub ${ProjectName}-${Environment}-CommonDependenciesLayerArn

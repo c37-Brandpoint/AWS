@@ -103,11 +103,11 @@ ls -lh "$BUILD_DIR"/*.zip
 # Upload to S3 if bucket specified
 if [ -n "$S3_BUCKET" ]; then
     echo ""
-    echo "Uploading to S3: s3://$S3_BUCKET/lambda/"
+    echo "Uploading to S3: s3://$S3_BUCKET/functions/"
 
     for func in "${FUNCTIONS[@]}"; do
         if [ -f "$BUILD_DIR/${func}.zip" ]; then
-            aws s3 cp "$BUILD_DIR/${func}.zip" "s3://$S3_BUCKET/lambda/${func}.zip"
+            aws s3 cp "$BUILD_DIR/${func}.zip" "s3://$S3_BUCKET/functions/${func}.zip"
             echo "  Uploaded: ${func}.zip"
         fi
     done

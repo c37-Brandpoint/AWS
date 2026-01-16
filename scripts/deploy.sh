@@ -84,7 +84,7 @@ echo -e "Stack Name:      ${YELLOW}${STACK_NAME}${NC}"
 echo ""
 
 # Step 1: Create S3 buckets for deployment artifacts
-echo -e "${GREEN}[1/6] Creating deployment buckets...${NC}"
+echo -e "${GREEN}[1/5] Creating deployment buckets...${NC}"
 
 aws s3 mb s3://${TEMPLATES_BUCKET} --region ${REGION} $AWS_ARGS 2>/dev/null || true
 aws s3 mb s3://${LAMBDA_CODE_BUCKET} --region ${REGION} $AWS_ARGS 2>/dev/null || true
@@ -100,10 +100,33 @@ aws s3api put-bucket-versioning \
     --versioning-configuration Status=Enabled \
     --region ${REGION} $AWS_ARGS
 
-echo -e "${GREEN}✓ Buckets created${NC}"
+# Block public access (security hardening)
+echo "  Applying security settings..."
+aws s3api put-public-access-block \
+    --bucket ${TEMPLATES_BUCKET} \
+    --public-access-block-configuration "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true" \
+    --region ${REGION} $AWS_ARGS
+
+aws s3api put-public-access-block \
+    --bucket ${LAMBDA_CODE_BUCKET} \
+    --public-access-block-configuration "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true" \
+    --region ${REGION} $AWS_ARGS
+
+# Enable server-side encryption
+aws s3api put-bucket-encryption \
+    --bucket ${TEMPLATES_BUCKET} \
+    --server-side-encryption-configuration '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}' \
+    --region ${REGION} $AWS_ARGS
+
+aws s3api put-bucket-encryption \
+    --bucket ${LAMBDA_CODE_BUCKET} \
+    --server-side-encryption-configuration '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}' \
+    --region ${REGION} $AWS_ARGS
+
+echo -e "${GREEN}✓ Buckets created and secured${NC}"
 
 # Step 2: Upload CloudFormation templates
-echo -e "${GREEN}[2/6] Uploading CloudFormation templates...${NC}"
+echo -e "${GREEN}[2/5] Uploading CloudFormation templates...${NC}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INFRA_DIR="${SCRIPT_DIR}/../infrastructure"
@@ -116,7 +139,7 @@ echo -e "${GREEN}✓ Templates uploaded${NC}"
 
 # Step 3: Build and upload Lambda packages (if not skipped)
 if [ "$SKIP_LAMBDA_BUILD" = false ]; then
-    echo -e "${GREEN}[3/6] Building Lambda packages...${NC}"
+    echo -e "${GREEN}[3/5] Building Lambda packages...${NC}"
 
     LAMBDA_DIR="${INFRA_DIR}/lambda"
 
@@ -152,45 +175,11 @@ if [ "$SKIP_LAMBDA_BUILD" = false ]; then
         echo -e "${YELLOW}⚠ No Lambda source directory found. Skipping Lambda build.${NC}"
     fi
 else
-    echo -e "${YELLOW}[3/6] Skipping Lambda build (--skip-lambda-build)${NC}"
+    echo -e "${YELLOW}[3/5] Skipping Lambda build (--skip-lambda-build)${NC}"
 fi
 
-# Step 4: Upload Lambda layer (common dependencies)
-echo -e "${GREEN}[4/6] Checking Lambda layer...${NC}"
-
-LAYER_DIR="${INFRA_DIR}/lambda/layers"
-if [ -d "$LAYER_DIR/common-deps" ]; then
-    echo "  Building common-deps layer..."
-    cd "$LAYER_DIR/common-deps"
-
-    mkdir -p python
-    if [ -f "requirements.txt" ]; then
-        pip install -r requirements.txt -t ./python --quiet
-    fi
-
-    zip -r9 common-deps.zip python --quiet
-    aws s3 cp common-deps.zip s3://${LAMBDA_CODE_BUCKET}/layers/common-deps.zip \
-        --region ${REGION} $AWS_ARGS
-
-    rm -rf python common-deps.zip
-    cd - > /dev/null
-
-    echo -e "${GREEN}✓ Lambda layer uploaded${NC}"
-else
-    echo -e "${YELLOW}⚠ No Lambda layer found. Creating placeholder.${NC}"
-    # Create empty layer placeholder
-    mkdir -p /tmp/empty-layer/python
-    touch /tmp/empty-layer/python/__init__.py
-    cd /tmp/empty-layer
-    zip -r9 common-deps.zip python --quiet
-    aws s3 cp common-deps.zip s3://${LAMBDA_CODE_BUCKET}/layers/common-deps.zip \
-        --region ${REGION} $AWS_ARGS
-    cd - > /dev/null
-    rm -rf /tmp/empty-layer
-fi
-
-# Step 5: Deploy CloudFormation stack
-echo -e "${GREEN}[5/6] Deploying CloudFormation stack...${NC}"
+# Step 4: Deploy CloudFormation stack
+echo -e "${GREEN}[4/5] Deploying CloudFormation stack...${NC}"
 
 aws cloudformation deploy \
     --template-file ${INFRA_DIR}/cloudformation/main.yaml \
@@ -207,8 +196,8 @@ aws cloudformation deploy \
 
 echo -e "${GREEN}✓ Stack deployed${NC}"
 
-# Step 6: Get stack outputs
-echo -e "${GREEN}[6/6] Retrieving stack outputs...${NC}"
+# Step 5: Get stack outputs
+echo -e "${GREEN}[5/5] Retrieving stack outputs...${NC}"
 
 echo ""
 echo -e "${GREEN}========================================${NC}"

@@ -120,7 +120,7 @@ Resources:
   FoundationStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: !Sub https://${TemplatesBucket}.s3.amazonaws.com/cloudformation/00-foundation.yaml
+      TemplateURL: !Sub https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/cloudformation/00-foundation.yaml
       Parameters:
         Environment: !Ref Environment
         ProjectName: !Ref ProjectName
@@ -139,7 +139,7 @@ Resources:
     Type: AWS::CloudFormation::Stack
     DependsOn: FoundationStack
     Properties:
-      TemplateURL: !Sub https://${TemplatesBucket}.s3.amazonaws.com/cloudformation/01-storage.yaml
+      TemplateURL: !Sub https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/cloudformation/01-storage.yaml
       Parameters:
         Environment: !Ref Environment
         ProjectName: !Ref ProjectName
@@ -156,7 +156,7 @@ Resources:
     Type: AWS::CloudFormation::Stack
     DependsOn: FoundationStack
     Properties:
-      TemplateURL: !Sub https://${TemplatesBucket}.s3.amazonaws.com/cloudformation/02-databases.yaml
+      TemplateURL: !Sub https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/cloudformation/02-databases.yaml
       Parameters:
         Environment: !Ref Environment
         ProjectName: !Ref ProjectName
@@ -177,7 +177,7 @@ Resources:
     Type: AWS::CloudFormation::Stack
     DependsOn: FoundationStack
     Properties:
-      TemplateURL: !Sub https://${TemplatesBucket}.s3.amazonaws.com/cloudformation/07-secrets.yaml
+      TemplateURL: !Sub https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/cloudformation/07-secrets.yaml
       Parameters:
         Environment: !Ref Environment
         ProjectName: !Ref ProjectName
@@ -198,7 +198,7 @@ Resources:
       - DatabasesStack
       - SecretsStack
     Properties:
-      TemplateURL: !Sub https://${TemplatesBucket}.s3.amazonaws.com/cloudformation/03-compute.yaml
+      TemplateURL: !Sub https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/cloudformation/03-compute.yaml
       Parameters:
         Environment: !Ref Environment
         ProjectName: !Ref ProjectName
@@ -218,7 +218,7 @@ Resources:
     Type: AWS::CloudFormation::Stack
     DependsOn: ComputeStack
     Properties:
-      TemplateURL: !Sub https://${TemplatesBucket}.s3.amazonaws.com/cloudformation/04-orchestration.yaml
+      TemplateURL: !Sub https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/cloudformation/04-orchestration.yaml
       Parameters:
         Environment: !Ref Environment
         ProjectName: !Ref ProjectName
@@ -237,7 +237,7 @@ Resources:
     Type: AWS::CloudFormation::Stack
     DependsOn: ComputeStack
     Properties:
-      TemplateURL: !Sub https://${TemplatesBucket}.s3.amazonaws.com/cloudformation/05-api.yaml
+      TemplateURL: !Sub https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/cloudformation/05-api.yaml
       Parameters:
         Environment: !Ref Environment
         ProjectName: !Ref ProjectName
@@ -257,7 +257,7 @@ Resources:
       - OrchestrationStack
       - APIStack
     Properties:
-      TemplateURL: !Sub https://${TemplatesBucket}.s3.amazonaws.com/cloudformation/06-monitoring.yaml
+      TemplateURL: !Sub https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/cloudformation/06-monitoring.yaml
       Parameters:
         Environment: !Ref Environment
         ProjectName: !Ref ProjectName

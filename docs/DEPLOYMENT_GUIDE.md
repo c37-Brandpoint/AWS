@@ -2,9 +2,50 @@
 
 ## For Brandpoint IT Team
 
-**Document Version:** 2.0
+**Document Version:** 2.2
 **Last Updated:** January 2026
-**Estimated Deployment Time:** 3-4 hours (includes VPC peering setup)
+
+---
+
+## CHOOSE YOUR PATH
+
+### Option A: Quick Start (Experienced IT - 30-45 minutes)
+
+If you're comfortable with AWS CLI and bash scripts, use the automated deployment:
+
+**Prerequisites:**
+- AWS CLI installed and configured (`aws configure`)
+- Python 3.11+ with pip
+- Git
+- Bash shell (Mac/Linux terminal, or Git Bash/WSL on Windows)
+- zip utility (included in Git Bash, Mac, and Linux)
+
+**Deploy:**
+```bash
+# 1. Clone the repo
+git clone git@github.com:c37-Brandpoint/AWS.git && cd AWS
+
+# 2. Run the deployment script (does everything automatically)
+./scripts/deploy.sh --environment dev --region us-east-1
+
+# 3. Wait 30-45 minutes (OpenSearch and Neptune take time to provision)
+
+# 4. Update secrets in AWS Console → Secrets Manager
+#    - brandpoint-ai-dev-openai-api-key
+#    - brandpoint-ai-dev-perplexity-api-key
+#    - brandpoint-ai-dev-gemini-api-key
+#    - brandpoint-ai-dev-hub-service-account-key
+```
+
+That's it. The script creates S3 buckets, packages Lambda functions, uploads everything, and deploys the CloudFormation stack.
+
+After deployment, continue to [Step 12: Network Configuration for RDS Access](#step-12-network-configuration-for-rds-access) for VPC peering setup.
+
+---
+
+### Option B: Step-by-Step Guide (Detailed - 3-4 hours)
+
+If you prefer a detailed walkthrough with screenshots and explanations, continue to the full guide below.
 
 ---
 
@@ -87,6 +128,20 @@ Before starting, confirm you have the following:
 - [ ] Internet connection
 - [ ] Ability to install software (admin rights)
 - [ ] At least 2GB free disk space
+
+### Software You Will Install (Step 3 covers this)
+
+These tools are required. Step 3 provides detailed installation instructions.
+
+- [ ] **AWS CLI** - Command-line tool to interact with AWS
+- [ ] **Python 3.11+** - Required for packaging Lambda functions
+- [ ] **pip** - Python package manager (included with Python)
+- [ ] **Git** - Version control (also provides Git Bash on Windows)
+- [ ] **zip** - For creating Lambda deployment packages
+  - *Windows:* Included with Git Bash (installed with Git)
+  - *Mac/Linux:* Pre-installed on most systems
+
+> **Windows Users:** You will need **Git Bash** (comes with Git) or **WSL** to run the deployment scripts. The scripts are bash scripts and won't run in standard Command Prompt.
 
 ### Information to Collect Before Starting
 
@@ -1426,6 +1481,43 @@ Test that Lambda can connect to RDS through the VPC peering.
    - Secrets Manager updated with credentials
    - Lambda can reach RDS (no network timeout errors)
 ```
+
+---
+
+## PRODUCTION HARDENING NOTES
+
+> **Important:** This POC deployment is optimized for development and testing. Before deploying to production, review these hardening recommendations.
+
+### Logging Configuration
+
+The POC uses verbose logging for debugging. For production:
+
+1. **API Gateway**: In `05-api.yaml`, set `DataTraceEnabled: false` to prevent logging request/response bodies
+2. **Step Functions**: In `04-orchestration.yaml`, set `IncludeExecutionData: false` and `Level: ERROR` to reduce log volume and prevent sensitive data in logs
+
+### IAM Permissions
+
+The POC uses broader IAM permissions for simplicity. For production:
+
+1. Scope Secrets Manager access to exact secret ARNs instead of wildcards
+2. Scope OpenSearch access to the specific domain ARN
+3. Scope Neptune permissions to specific actions used by the application
+
+### Lambda Packaging
+
+For production deployments with compiled dependencies:
+
+1. Use **AWS SAM** (`sam build`) for consistent Lambda packaging
+2. Or use Docker with Amazon Linux 2 base image to ensure binary compatibility
+3. This ensures compiled Python packages (if any) match the Lambda runtime
+
+### Secrets Management
+
+For production:
+
+1. Avoid storing placeholder values in CloudFormation templates
+2. Use `GenerateSecretString` for database passwords
+3. Configure secrets out-of-band using `aws secretsmanager put-secret-value`
 
 ---
 
