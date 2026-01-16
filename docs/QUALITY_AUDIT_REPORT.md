@@ -180,10 +180,21 @@ Created environment-specific parameter files:
 - `parameters/dev.json` - Development parameters with VpcCidr, TemplatesBucket, AlertEmail
 - `parameters/prod.json` - Production parameters with full configuration
 
+### Deployment Scripts
+- `scripts/brandpoint-deploy.sh` - One-command deployment wrapper with auto-CIDR selection
+- `scripts/ignite.sh` - Enable schedules after validating secrets aren't placeholders
+- `scripts/preflight-check.sh` - Enhanced with CIDR overlap detection (not just equality)
+- `scripts/deploy.sh` - Updated to prefer requirements.lock.txt for reproducible builds
+- `scripts/destroy.sh` - Enhanced error messaging with specific CLI fix commands
+
+### Lambda Dependencies
+- `infrastructure/lambda/*/requirements.lock.txt` - Pinned dependencies for all 16 Lambda functions
+
 ### Documentation
-- `README.md` - Complete rewrite with current architecture, API endpoints, costs
-- `DEPLOYMENT_GUIDE.md` - Added Steps 12-13 for VPC Peering and RDS connectivity
-- `QUALITY_AUDIT_REPORT.md` - This document (updated with network configuration)
+- `README.md` - Complete rewrite with one-command deployment instructions (version 3.0)
+- `DEPLOYMENT_GUIDE.md` - Simplified Option A for one-command deployment (version 3.0)
+- `BRANDPOINT_RUNBOOK.md` - New single-page deployment quick reference
+- `QUALITY_AUDIT_REPORT.md` - This document (updated with deployment hardening)
 
 ---
 
@@ -268,5 +279,5 @@ The infrastructure supports:
 
 ---
 
-**Document Version:** 2.0
+**Document Version:** 3.0
 **Last Updated:** January 2026

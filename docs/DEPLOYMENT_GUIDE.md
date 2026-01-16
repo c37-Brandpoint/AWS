@@ -1816,4 +1816,8 @@ aws cloudformation describe-stack-events --stack-name brandpoint-ai-dev
 
 **END OF DEPLOYMENT GUIDE**
 
-Document maintained by: Codename37 Development Team
+---
+
+**Document Version:** 3.0
+**Last Updated:** January 2026
+**Maintained by:** Codename37 Development Team

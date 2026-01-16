@@ -231,10 +231,7 @@ Edges:
 |----------|---------|--------|---------|---------|------------|
 | `load-persona` | Python 3.11 | 256 MB | 30s | Step Functions | No |
 | `generate-queries` | Python 3.11 | 512 MB | 60s | Step Functions | No |
-| `execute-query-chatgpt` | Python 3.11 | 256 MB | 120s | Step Functions | No |
-| `execute-query-perplexity` | Python 3.11 | 256 MB | 120s | Step Functions | No |
-| `execute-query-gemini` | Python 3.11 | 256 MB | 120s | Step Functions | No |
-| `execute-query-claude` | Python 3.11 | 256 MB | 120s | Step Functions | No |
+| `execute-query` | Python 3.11 | 256 MB | 120s | Step Functions | No |
 | `analyze-visibility` | Python 3.11 | 512 MB | 60s | Step Functions | No |
 | `store-results` | Python 3.11 | 256 MB | 30s | Step Functions | No |
 | `feature-extraction` | Python 3.11 | 1024 MB | 60s | API Gateway | **Yes** |
@@ -247,6 +244,9 @@ Edges:
 | `persona-api` | Python 3.11 | 256 MB | 30s | API Gateway | No |
 | `intelligence-api` | Python 3.11 | 512 MB | 30s | API Gateway | No |
 | `health-check` | Python 3.11 | 128 MB | 10s | API Gateway | No |
+| `common` (Layer) | Python 3.11 | - | - | Shared library | No |
+
+**Note:** The `execute-query` function handles all 4 AI engines (ChatGPT, Perplexity, Gemini, Claude) based on input parameters.
 
 ### SageMaker Endpoint
 
@@ -463,3 +463,22 @@ All infrastructure tasks from the source repo organized by phase:
 ### Phase 5: Documentation
 - [#45] Write API documentation (OpenAPI/Swagger)
 - [#46] Create AWS deployment guide (Infrastructure as Code)
+
+---
+
+## Deployment Scripts
+
+| Script | Purpose |
+|--------|---------|
+| `brandpoint-deploy.sh` | **One-command deployment** - runs everything automatically |
+| `ignite.sh` | Enable EventBridge schedules after secrets are configured |
+| `preflight-check.sh` | Validate AWS credentials, quotas, and CIDR conflicts |
+| `deploy.sh` | 7-step deployment process (used by brandpoint-deploy.sh) |
+| `smoke-test.sh` | Post-deployment verification |
+| `rollback.sh` | Emergency stack rollback |
+| `destroy.sh` | Complete teardown with cleanup guidance |
+
+---
+
+**Document Version:** 3.0
+**Last Updated:** January 2026

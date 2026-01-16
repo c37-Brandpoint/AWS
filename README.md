@@ -309,6 +309,7 @@ See **[DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md)** for detailed step-by-ste
 
 | Document | Description |
 |----------|-------------|
+| **[BRANDPOINT_RUNBOOK.md](docs/BRANDPOINT_RUNBOOK.md)** | One-page quick reference for deployment |
 | **[DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md)** | Step-by-step deployment for IT team |
 | **[QUALITY_AUDIT_REPORT.md](docs/QUALITY_AUDIT_REPORT.md)** | Infrastructure audit and fixes |
 | [Integration Architecture](docs/architecture/05_INTEGRATION_ARCHITECTURE.md) | AWS service design |
