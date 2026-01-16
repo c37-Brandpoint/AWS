@@ -268,7 +268,7 @@ Resources:
           HUB_API_SECRET: !Sub ${ProjectName}-${Environment}-hub-service-account-key
           HUB_API_URL: !Ref HubApiBaseUrl
           ENVIRONMENT: !Ref Environment
-          AWS_REGION_NAME: !Ref AWS::Region
+          AWS_REGION: !Ref AWS::Region
       Code:
         S3Bucket: !Ref LambdaCodeBucket
         S3Key: functions/store-results.zip
@@ -304,7 +304,7 @@ Resources:
           ARA3_DB_SECRET: !Sub ${ProjectName}-${Environment}-ara3-database-readonly
           SAGEMAKER_ENDPOINT: !Sub ${ProjectName}-${Environment}-visibility-predictor
           ENVIRONMENT: !Ref Environment
-          AWS_REGION_NAME: !Ref AWS::Region
+          AWS_REGION: !Ref AWS::Region
       Code:
         S3Bucket: !Ref LambdaCodeBucket
         S3Key: functions/feature-extraction.zip
@@ -342,7 +342,7 @@ Resources:
           OPENSEARCH_INDEX: !Sub ${ProjectName}-${Environment}-content-vectors
           ARA3_DB_SECRET: !Sub ${ProjectName}-${Environment}-ara3-database-readonly
           ENVIRONMENT: !Ref Environment
-          AWS_REGION_NAME: !Ref AWS::Region
+          AWS_REGION: !Ref AWS::Region
       Code:
         S3Bucket: !Ref LambdaCodeBucket
         S3Key: functions/content-ingestion.zip
@@ -410,7 +410,7 @@ Resources:
           OPENSEARCH_INDEX: !Sub ${ProjectName}-${Environment}-content-vectors
           BEDROCK_EMBEDDING_MODEL: amazon.titan-embed-text-v2:0
           ENVIRONMENT: !Ref Environment
-          AWS_REGION_NAME: !Ref AWS::Region
+          AWS_REGION: !Ref AWS::Region
       Code:
         S3Bucket: !Ref LambdaCodeBucket
         S3Key: functions/similarity-search.zip
@@ -515,7 +515,7 @@ Resources:
           HUB_API_SECRET: !Sub ${ProjectName}-${Environment}-hub-service-account-key
           ARA3_DB_SECRET: !Sub ${ProjectName}-${Environment}-ara3-database-readonly
           ENVIRONMENT: !Ref Environment
-          AWS_REGION_NAME: !Ref AWS::Region
+          AWS_REGION: !Ref AWS::Region
       Code:
         S3Bucket: !Ref LambdaCodeBucket
         S3Key: functions/prediction-api.zip
@@ -548,10 +548,9 @@ Resources:
             Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PersonasTable
           QUERY_RESULTS_TABLE:
             Fn::ImportValue: !Sub ${ProjectName}-${Environment}-QueryResultsTable
-          STEP_FUNCTION_ARN:
-            Fn::ImportValue: !Sub ${ProjectName}-${Environment}-PersonaAgentStateMachineArn
+          STEP_FUNCTION_NAME: !Sub ${ProjectName}-${Environment}-persona-agent
           ENVIRONMENT: !Ref Environment
-          AWS_REGION_NAME: !Ref AWS::Region
+          AWS_REGION: !Ref AWS::Region
       Code:
         S3Bucket: !Ref LambdaCodeBucket
         S3Key: functions/persona-api.zip

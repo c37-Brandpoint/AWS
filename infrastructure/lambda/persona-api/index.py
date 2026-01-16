@@ -18,12 +18,30 @@ logger.setLevel(logging.INFO)
 
 # Environment variables
 PERSONAS_TABLE = os.environ.get('PERSONAS_TABLE', 'brandpoint-personas')
-STEP_FUNCTION_ARN = os.environ.get('STEP_FUNCTION_ARN', '')
+STEP_FUNCTION_NAME = os.environ.get('STEP_FUNCTION_NAME', '')
 
 # Clients
 dynamodb = boto3.resource('dynamodb')
 sfn_client = boto3.client('stepfunctions')
+sts_client = boto3.client('sts')
 personas_table = dynamodb.Table(PERSONAS_TABLE)
+
+# Construct Step Function ARN at runtime to avoid circular dependency
+_step_function_arn_cache = None
+
+def get_step_function_arn():
+    """Construct Step Function ARN at runtime."""
+    global _step_function_arn_cache
+    if _step_function_arn_cache:
+        return _step_function_arn_cache
+
+    if not STEP_FUNCTION_NAME:
+        return None
+
+    region = os.environ.get('AWS_REGION', 'us-east-1')
+    account_id = sts_client.get_caller_identity()['Account']
+    _step_function_arn_cache = f"arn:aws:states:{region}:{account_id}:stateMachine:{STEP_FUNCTION_NAME}"
+    return _step_function_arn_cache
 
 
 class DecimalEncoder(json.JSONEncoder):
@@ -234,7 +252,8 @@ def delete_persona(persona_id: str) -> dict:
 
 def execute_persona(persona_id: str, body: dict) -> dict:
     """Execute persona agent workflow."""
-    if not STEP_FUNCTION_ARN:
+    step_function_arn = get_step_function_arn()
+    if not step_function_arn:
         return api_response(503, {'error': 'Workflow execution not configured'})
 
     # Get persona
@@ -258,7 +277,7 @@ def execute_persona(persona_id: str, body: dict) -> dict:
 
     try:
         sfn_response = sfn_client.start_execution(
-            stateMachineArn=STEP_FUNCTION_ARN,
+            stateMachineArn=step_function_arn,
             name=execution_name,
             input=json.dumps(execution_input)
         )

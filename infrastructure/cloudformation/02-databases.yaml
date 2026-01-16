@@ -126,7 +126,7 @@ Resources:
       DBClusterParameterGroupName: !Ref NeptuneClusterParameterGroup
       VpcSecurityGroupIds:
         - Fn::ImportValue: !Sub ${ProjectName}-${Environment}-NeptuneSGId
-      IamAuthEnabled: true
+      IamAuthEnabled: false  # Disabled for POC - enable for production with IAM signature v4 in Lambda
       StorageEncrypted: true
       DeletionProtection: false
       BackupRetentionPeriod: 7

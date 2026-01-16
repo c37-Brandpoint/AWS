@@ -84,7 +84,7 @@ echo -e "Stack Name:      ${YELLOW}${STACK_NAME}${NC}"
 echo ""
 
 # Step 1: Create S3 buckets for deployment artifacts
-echo -e "${GREEN}[1/6] Creating deployment buckets...${NC}"
+echo -e "${GREEN}[1/7] Creating deployment buckets...${NC}"
 
 aws s3 mb s3://${TEMPLATES_BUCKET} --region ${REGION} $AWS_ARGS 2>/dev/null || true
 aws s3 mb s3://${LAMBDA_CODE_BUCKET} --region ${REGION} $AWS_ARGS 2>/dev/null || true
@@ -126,7 +126,7 @@ aws s3api put-bucket-encryption \
 echo -e "${GREEN}✓ Buckets created and secured${NC}"
 
 # Step 2: Upload CloudFormation templates
-echo -e "${GREEN}[2/6] Uploading CloudFormation templates...${NC}"
+echo -e "${GREEN}[2/7] Uploading CloudFormation templates...${NC}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INFRA_DIR="${SCRIPT_DIR}/../infrastructure"
@@ -139,7 +139,7 @@ echo -e "${GREEN}✓ Templates uploaded${NC}"
 
 # Step 3: Build and upload Lambda packages (if not skipped)
 if [ "$SKIP_LAMBDA_BUILD" = false ]; then
-    echo -e "${GREEN}[3/6] Building Lambda packages...${NC}"
+    echo -e "${GREEN}[3/7] Building Lambda packages...${NC}"
 
     LAMBDA_DIR="${INFRA_DIR}/lambda"
 
@@ -175,11 +175,11 @@ if [ "$SKIP_LAMBDA_BUILD" = false ]; then
         echo -e "${YELLOW}⚠ No Lambda source directory found. Skipping Lambda build.${NC}"
     fi
 else
-    echo -e "${YELLOW}[3/6] Skipping Lambda build (--skip-lambda-build)${NC}"
+    echo -e "${YELLOW}[3/7] Skipping Lambda build (--skip-lambda-build)${NC}"
 fi
 
 # Step 4: Preflight validation
-echo -e "${GREEN}[4/6] Running preflight validation...${NC}"
+echo -e "${GREEN}[4/7] Running preflight validation...${NC}"
 
 # Define expected Lambda functions
 EXPECTED_FUNCTIONS=(
@@ -233,8 +233,82 @@ echo -e "  ${GREEN}✓ CloudFormation template valid${NC}"
 
 echo -e "${GREEN}✓ Preflight validation passed${NC}"
 
-# Step 5: Deploy CloudFormation stack
-echo -e "${GREEN}[5/6] Deploying CloudFormation stack...${NC}"
+# Step 5: Create model artifacts bucket and placeholder
+echo -e "${GREEN}[5/7] Preparing model artifacts...${NC}"
+
+MODEL_ARTIFACTS_BUCKET="${PROJECT_NAME}-${ENVIRONMENT}-model-artifacts-${ACCOUNT_ID}"
+MODEL_KEY="models/visibility-predictor/model.tar.gz"
+
+# Create model artifacts bucket if it doesn't exist
+aws s3 mb s3://${MODEL_ARTIFACTS_BUCKET} --region ${REGION} $AWS_ARGS 2>/dev/null || true
+
+aws s3api put-bucket-versioning \
+    --bucket ${MODEL_ARTIFACTS_BUCKET} \
+    --versioning-configuration Status=Enabled \
+    --region ${REGION} $AWS_ARGS 2>/dev/null || true
+
+aws s3api put-public-access-block \
+    --bucket ${MODEL_ARTIFACTS_BUCKET} \
+    --public-access-block-configuration "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true" \
+    --region ${REGION} $AWS_ARGS 2>/dev/null || true
+
+aws s3api put-bucket-encryption \
+    --bucket ${MODEL_ARTIFACTS_BUCKET} \
+    --server-side-encryption-configuration '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}' \
+    --region ${REGION} $AWS_ARGS 2>/dev/null || true
+
+# Check if model exists, create placeholder if not
+if ! aws s3 ls "s3://${MODEL_ARTIFACTS_BUCKET}/${MODEL_KEY}" --region ${REGION} $AWS_ARGS > /dev/null 2>&1; then
+    echo -e "  ${YELLOW}ML model not found. Creating placeholder...${NC}"
+    echo -e "  ${YELLOW}NOTE: Upload real model.tar.gz before using prediction endpoints${NC}"
+
+    # Create minimal placeholder model that returns a clear error
+    TEMP_MODEL_DIR=$(mktemp -d)
+    mkdir -p "${TEMP_MODEL_DIR}/code"
+
+    cat > "${TEMP_MODEL_DIR}/code/inference.py" << 'INFERENCE_EOF'
+"""
+Placeholder model for SageMaker endpoint.
+Replace this with your actual trained model.
+"""
+import json
+
+def model_fn(model_dir):
+    return {"placeholder": True}
+
+def input_fn(request_body, request_content_type):
+    return json.loads(request_body)
+
+def predict_fn(input_data, model):
+    return {
+        "error": "PLACEHOLDER_MODEL",
+        "message": "This is a placeholder model. Upload your trained model.tar.gz to replace this.",
+        "score": 0.0,
+        "confidence": 0.0
+    }
+
+def output_fn(prediction, accept):
+    return json.dumps(prediction)
+INFERENCE_EOF
+
+    # Create model.tar.gz
+    cd "${TEMP_MODEL_DIR}"
+    tar -czvf model.tar.gz code/ > /dev/null 2>&1
+
+    # Upload to S3
+    aws s3 cp model.tar.gz "s3://${MODEL_ARTIFACTS_BUCKET}/${MODEL_KEY}" \
+        --region ${REGION} $AWS_ARGS > /dev/null
+
+    # Cleanup
+    rm -rf "${TEMP_MODEL_DIR}"
+
+    echo -e "  ${GREEN}✓ Placeholder model uploaded${NC}"
+else
+    echo -e "  ${GREEN}✓ Model artifact found in S3${NC}"
+fi
+
+# Step 6: Deploy CloudFormation stack
+echo -e "${GREEN}[6/7] Deploying CloudFormation stack...${NC}"
 
 aws cloudformation deploy \
     --template-file ${INFRA_DIR}/cloudformation/main.yaml \
@@ -251,8 +325,8 @@ aws cloudformation deploy \
 
 echo -e "${GREEN}✓ Stack deployed${NC}"
 
-# Step 6: Get stack outputs
-echo -e "${GREEN}[6/6] Retrieving stack outputs...${NC}"
+# Step 7: Get stack outputs
+echo -e "${GREEN}[7/7] Retrieving stack outputs...${NC}"
 
 echo ""
 echo -e "${GREEN}========================================${NC}"
@@ -271,11 +345,17 @@ echo ""
 echo -e "${YELLOW}Next Steps:${NC}"
 echo "1. Update secrets in Secrets Manager with actual API keys:"
 echo "   aws secretsmanager put-secret-value --secret-id ${PROJECT_NAME}-${ENVIRONMENT}-openai-api-key --secret-string '{\"apiKey\":\"your-key\"}'"
+echo "   aws secretsmanager put-secret-value --secret-id ${PROJECT_NAME}-${ENVIRONMENT}-perplexity-api-key --secret-string '{\"apiKey\":\"your-key\"}'"
+echo "   aws secretsmanager put-secret-value --secret-id ${PROJECT_NAME}-${ENVIRONMENT}-gemini-api-key --secret-string '{\"apiKey\":\"your-key\"}'"
 echo ""
-echo "2. Upload ML model to S3:"
-echo "   aws s3 cp model.tar.gz s3://${PROJECT_NAME}-${ENVIRONMENT}-model-artifacts-${ACCOUNT_ID}/models/visibility-predictor/"
+echo "2. Replace placeholder ML model in S3 with trained model:"
+echo "   aws s3 cp model.tar.gz s3://${MODEL_ARTIFACTS_BUCKET}/${MODEL_KEY}"
+echo "   (A placeholder model was deployed - predictions will return errors until replaced)"
 echo ""
-echo "3. Create initial personas in DynamoDB"
+echo "3. Run smoke tests to verify deployment:"
+echo "   ./scripts/smoke-test.sh ${ENVIRONMENT} ${REGION}"
 echo ""
-echo "4. Test the API endpoint"
+echo "4. Create initial personas in DynamoDB"
+echo ""
+echo "5. Test the API endpoint"
 echo ""
