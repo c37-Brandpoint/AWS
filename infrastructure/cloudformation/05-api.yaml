@@ -40,7 +40,7 @@ Resources:
   #############################################################################
   APIKey:
     Type: AWS::ApiGateway::ApiKey
-    DependsOn: APIDeployment
+    DependsOn: APIStage
     Properties:
       Name: !Sub ${ProjectName}-${Environment}-api-key
       Description: API key for Brandpoint Hub integration
