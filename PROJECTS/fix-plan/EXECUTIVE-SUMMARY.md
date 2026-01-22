@@ -2,15 +2,29 @@
 
 **Date:** 2026-01-21
 **Project:** Brandpoint AI Platform
-**Status:** Ready for Execution
+**Status:** ⚠️ Phase 1 Complete - Blocked on IAM Permissions
+**Last Updated:** 2026-01-21
+
+---
+
+## Current Status
+
+| Phase | Status |
+|-------|--------|
+| Phase 1: Pre-Deployment Fixes | ✅ **COMPLETE** |
+| Phase 2: Deployment | ⚠️ **BLOCKED** - Awaiting IAM permissions |
+| Phase 3: Post-Deployment Config | Pending |
+| Phase 4: Validation | Pending |
+
+**Blocker:** `codename37` IAM user lacks `iam:CreateRole` permission. Email sent to Brandpoint IT requesting admin access.
 
 ---
 
 ## Overview
 
-10 issues identified during repo validation. 3 critical, 3 high, 2 medium, 2 low.
+11 issues identified (10 original + 1 discovered during execution). 3 critical, 3 high, 2 medium, 2 low, 1 blocker.
 
-**Total Remediation Time:** 5-7 hours
+**Total Remediation Time:** 5-7 hours (once IAM permissions granted)
 
 ---
 
@@ -53,12 +67,19 @@
 
 ## Who Does What
 
-| Owner | Tasks | Time |
-|-------|-------|------|
-| **Codename 37** | FIX-001, FIX-002, FIX-010 (code changes) | 30 min |
-| **Brandpoint IT** | FIX-003, FIX-004, FIX-006, FIX-007 (AWS config) | 3-4 hours |
-| **Auto** | FIX-005 (S3 sync during deploy) | 0 min |
-| **Optional** | FIX-008, FIX-009 (cleanup) | 15 min |
+| Owner | Tasks | Status |
+|-------|-------|--------|
+| **Codename 37** | FIX-001, FIX-002, FIX-010 (code changes) | ✅ FIX-001, FIX-002 COMPLETE |
+| **Brandpoint IT** | FIX-003, FIX-004, FIX-006, FIX-007, **NEW-001** (AWS config) | FIX-004 verified OK, **NEW-001 BLOCKING** |
+| **Auto** | FIX-005 (S3 sync during deploy) | Pending deployment |
+| **Optional** | FIX-008, FIX-009 (cleanup) | Pending |
+
+### ⚠️ Immediate Action Required
+
+**Brandpoint IT must grant IAM permissions** before deployment can proceed:
+- User: `codename37`
+- Required: `iam:CreateRole`, `iam:PutRolePolicy`, `iam:AttachRolePolicy`, `iam:PassRole`
+- Alternative: Grant admin access or run deployment with admin user
 
 ---
 
@@ -117,15 +138,16 @@ curl $(aws cloudformation describe-stacks --stack-name brandpoint-ai-dev --profi
 
 ## Go/No-Go Checklist
 
-### Phase 1 Go Criteria
-- [ ] Hub URL decision made
-- [ ] Code changes committed and pushed
-- [ ] Bedrock model access approved
+### Phase 1 Go Criteria ✅ COMPLETE
+- [x] Hub URL decision made → Using production `hub.brandpoint.com`
+- [x] Code changes committed and pushed → Commit `098abc7`
+- [x] Bedrock model access approved → Already configured and verified
 
-### Phase 2 Go Criteria
-- [ ] Phase 1 complete
-- [ ] Deployment machine has latest code
-- [ ] AWS credentials configured
+### Phase 2 Go Criteria ⚠️ BLOCKED
+- [x] Phase 1 complete
+- [x] Deployment machine has latest code
+- [x] AWS credentials configured
+- [ ] **IAM CreateRole permission granted** ← BLOCKING
 
 ### Phase 3 Go Criteria
 - [ ] Deployment successful (CREATE_COMPLETE)

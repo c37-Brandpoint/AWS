@@ -2,37 +2,54 @@
 
 **Print this page and check off items as you complete them.**
 
+**Last Updated:** 2026-01-21
+**Current Status:** Phase 1 Complete - Awaiting IAM Permissions for Phase 2
+
 ---
 
 ## Phase 1: Pre-Deployment Fixes
 
 ### Codename 37 Tasks
 
-- [ ] **FIX-001:** Update `infrastructure/cloudformation/parameters/dev.json` line 24
+- [x] **FIX-001:** Update `infrastructure/cloudformation/parameters/dev.json` line 24 ✅ COMPLETE
   ```
   "ParameterValue": "https://hub.brandpoint.com"
   ```
+  *Completed: 2026-01-21 - Commit 098abc7*
 
-- [ ] **FIX-002:** Update `infrastructure/cloudformation/00-foundation.yaml` line 222
+- [x] **FIX-002:** Update `infrastructure/cloudformation/00-foundation.yaml` line 222 ✅ COMPLETE
   ```
   CidrIp: 172.30.0.0/16
   ```
+  *Completed: 2026-01-21 - Commit 098abc7*
 
-- [ ] **Commit changes:**
+- [x] **Commit changes:** ✅ COMPLETE
   ```bash
   git add -A
   git commit -m "Fix Hub URL and Lambda CIDR for Brandpoint environment"
   git push origin main
   ```
+  *Completed: 2026-01-21 - Pushed to origin/main*
 
 ### Brandpoint IT Tasks
 
-- [ ] **FIX-004:** Enable Bedrock models in AWS Console
-  - [ ] Navigate to: AWS Console → Amazon Bedrock → Model access
-  - [ ] Request access to: `anthropic.claude-3-5-sonnet-*`
-  - [ ] Request access to: `amazon.titan-embed-text-v2:0`
-  - [ ] Accept EULA
-  - [ ] Wait for approval confirmation
+- [x] **FIX-004:** Enable Bedrock models in AWS Console ✅ ALREADY CONFIGURED
+  - [x] Claude 3 Sonnet: Working (direct model ID)
+  - [x] Claude 3.5 Sonnet v2: Working (via inference profile `us.anthropic.claude-3-5-sonnet-20241022-v2:0`)
+  - [x] Titan Embed v2: Working
+  *Verified: 2026-01-21 - Models accessible and responding*
+
+### ⚠️ BLOCKER: IAM Permissions Required
+
+- [ ] **NEW-001:** Grant IAM write permissions to `codename37` user
+  - Current user lacks `iam:CreateRole` permission
+  - Deployment creates 6 IAM roles (will fail without this permission)
+  - **Action:** Brandpoint IT must add IAM permissions or run deployment themselves
+  - **Verification command:**
+    ```bash
+    aws iam create-role --role-name permission-test --assume-role-policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}' --profile brandpoint && aws iam delete-role --role-name permission-test --profile brandpoint
+    ```
+  *Status: Email sent to Brandpoint IT - Awaiting response*
 
 ---
 

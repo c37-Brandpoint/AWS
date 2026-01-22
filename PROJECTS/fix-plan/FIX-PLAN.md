@@ -13,6 +13,7 @@
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
 | 1.0 | 2026-01-21 | Codename 37 | Initial fix plan |
+| 1.1 | 2026-01-21 | Codename 37 | Phase 1 complete, added IAM permission blocker (NEW-001) |
 
 ---
 
@@ -45,16 +46,46 @@ This document provides a comprehensive remediation plan for 10 identified issues
 
 | ID | Severity | Issue | Owner | Status |
 |----|----------|-------|-------|--------|
-| FIX-001 | CRITICAL | Hub staging URL does not exist | Codename 37 | Open |
-| FIX-002 | CRITICAL | Lambda security group CIDR mismatch | Codename 37 | Open |
+| FIX-001 | CRITICAL | Hub staging URL does not exist | Codename 37 | ✅ COMPLETE |
+| FIX-002 | CRITICAL | Lambda security group CIDR mismatch | Codename 37 | ✅ COMPLETE |
 | FIX-003 | CRITICAL | RDS security group update required | Brandpoint IT | Open |
-| FIX-004 | HIGH | Bedrock model agreement not accepted | Brandpoint IT | Open |
+| FIX-004 | HIGH | Bedrock model agreement not accepted | Brandpoint IT | ✅ VERIFIED OK |
 | FIX-005 | HIGH | S3 templates contain buggy code | Auto-resolves | Open |
 | FIX-006 | HIGH | Secrets require real values | Brandpoint IT | Open |
 | FIX-007 | MEDIUM | Elastic IP quota is tight | Brandpoint IT | Open |
 | FIX-008 | MEDIUM | Orphaned CloudWatch log group | Optional | Open |
 | FIX-009 | LOW | Template bucket name in parameters | Optional | Open |
 | FIX-010 | LOW | Documentation references invalid URL | Codename 37 | Open |
+| **NEW-001** | **BLOCKER** | **IAM CreateRole permission missing** | **Brandpoint IT** | **⚠️ BLOCKING** |
+
+### NEW-001: IAM Permission Blocker (Discovered 2026-01-21)
+
+**Severity:** BLOCKER
+**Type:** IAM Permissions
+**Owner:** Brandpoint IT
+**Status:** Awaiting IT response
+
+**Problem:** The `codename37` IAM user lacks `iam:CreateRole` permission. CloudFormation deployment creates 6 IAM roles and will fail without this permission.
+
+**Permissions Verified:**
+| Permission | Status |
+|------------|--------|
+| CloudFormation: CreateStack | ✅ Pass |
+| EC2: CreateVpc | ✅ Pass |
+| S3: Read/Write/Delete | ✅ Pass |
+| IAM: ListRoles | ✅ Pass |
+| Bedrock: InvokeModel | ✅ Pass |
+| **IAM: CreateRole** | ❌ **DENIED** |
+
+**Resolution Options:**
+1. Grant `codename37` user IAM write permissions (CreateRole, PutRolePolicy, AttachRolePolicy, PassRole)
+2. Add `PowerUserAccess` + limited IAM permissions
+3. Have Brandpoint IT (with admin access) run the deployment
+
+**Verification:**
+```bash
+aws iam create-role --role-name permission-test --assume-role-policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}' --profile brandpoint && aws iam delete-role --role-name permission-test --profile brandpoint
+```
 
 ---
 
