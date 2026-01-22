@@ -219,8 +219,8 @@ Resources:
         - IpProtocol: tcp
           FromPort: 1433
           ToPort: 1433
-          CidrIp: 10.0.0.0/8
-          Description: SQL Server RDS (via VPC peering to existing Brandpoint VPC)
+          CidrIp: 172.30.0.0/16
+          Description: SQL Server RDS (via VPC peering to Brandpoint VPC 172.30.0.0/16)
       Tags:
         - Key: Name
           Value: !Sub ${ProjectName}-${Environment}-lambda-sg

@@ -21,7 +21,7 @@
   },
   {
     "ParameterKey": "HubApiBaseUrl",
-    "ParameterValue": "https://hub-staging.brandpoint.com"
+    "ParameterValue": "https://hub.brandpoint.com"
   },
   {
     "ParameterKey": "OpenSearchInstanceType",
